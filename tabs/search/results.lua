@@ -34,7 +34,7 @@ do
 		return searches[search_index]
 	end
 
-	function handle.CLOSE()
+	function aux.handle.CLOSE()
 		for _, search in searches do
 			if search.records then
 				T.release(search.records)

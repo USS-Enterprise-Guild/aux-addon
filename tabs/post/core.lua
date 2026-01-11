@@ -74,6 +74,19 @@ end
 function tab.CLOSE()
     selected_item = nil
     frame:Hide()
+    -- Clean up pooled tables to prevent memory leaks
+    for _, records in bid_records do
+        if records then
+            T.release(records)
+        end
+    end
+    for _, records in buyout_records do
+        if records then
+            T.release(records)
+        end
+    end
+    bid_records = {}
+    buyout_records = {}
 end
 
 function tab.USE_ITEM(item_info)

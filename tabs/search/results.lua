@@ -34,6 +34,17 @@ do
 		return searches[search_index]
 	end
 
+	function handle.CLOSE()
+		for _, search in searches do
+			if search.records then
+				T.release(search.records)
+				search.records = nil
+			end
+		end
+		searches = {}
+		search_index = 1
+	end
+
 	function update_search(index)
 		searches[search_index].status_bar:Hide()
 		searches[search_index].table:Hide()

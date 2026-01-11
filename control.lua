@@ -58,10 +58,15 @@ function M.kill_listener(listener_id)
 	if listener then
 		listener.killed = true
 		local event = listener.event
-		event_counts[event] = event_counts[event] - 1
-		if event_counts[event] == 0 then
-			event_frame:UnregisterEvent(event)
-			event_counts[event] = nil
+		local count = event_counts[event]
+		if count then
+			count = count - 1
+			if count == 0 then
+				event_frame:UnregisterEvent(event)
+				event_counts[event] = nil
+			else
+				event_counts[event] = count
+			end
 		end
 	end
 end

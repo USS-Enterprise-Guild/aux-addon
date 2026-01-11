@@ -600,6 +600,38 @@ function refresh_entries()
             raw_auction_records[item_key] = nil
         end
 
+        -- Check shared cache first
+        local cached_records = auction_cache.get(item_id)
+        if cached_records then
+            -- Use cached records to populate bid/buyout records
+            local local_raw_records = T.acquire()
+            for _, record in cached_records do
+                if record.item_key == item_key then
+                    -- Copy record for local storage
+                    local copy = T.acquire()
+                    for k, v in record do
+                        copy[k] = v
+                    end
+                    tinsert(local_raw_records, copy)
+                    record_auction(
+                        record.item_key,
+                        record.aux_quantity,
+                        record.unit_blizzard_bid,
+                        record.unit_buyout_price,
+                        record.duration,
+                        record.owner
+                    )
+                end
+            end
+            bid_records[item_key] = bid_records[item_key] or T.acquire()
+            buyout_records[item_key] = buyout_records[item_key] or T.acquire()
+            raw_auction_records[item_key] = local_raw_records
+            refresh = true
+            status_bar:update_status(1, 1)
+            status_bar:set_text('Loaded from cache')
+            return
+        end
+
         local query = scan_util.item_query(item_id)
         status_bar:update_status(0, 0)
         status_bar:set_text('Scanning auctions...')

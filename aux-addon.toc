@@ -4,6 +4,7 @@
 ## Title: aux
 ## Notes: Auction House replacement
 ## SavedVariables: aux
+## Version: 1.0.0-1701-1
 
 libs\package.lua
 libs\T.lua

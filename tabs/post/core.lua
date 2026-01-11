@@ -57,12 +57,15 @@ end
 do
 	local bid_selections, buyout_selections = {}, {}
 	function get_bid_selection()
+		if not selected_item then return nil end
 		return bid_selections[selected_item.key]
 	end
 	function set_bid_selection(record)
+		if not selected_item then return end
 		bid_selections[selected_item.key] = record
 	end
 	function get_buyout_selection()
+		if not selected_item then return nil end
 		return buyout_selections[selected_item.key]
 	end
 	function set_buyout_selection(record)

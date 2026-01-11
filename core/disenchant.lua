@@ -33,9 +33,10 @@ local WEAPON = T.set(
 	'INVTYPE_RANGEDRIGHT'
 )
 
-function M.value(slot, quality, level, item_id)
+function M.value(slot, quality, level, item_id, dist)
     local expectation
-    for _, event in distribution(slot, quality, level, item_id) do
+    dist = dist or distribution(slot, quality, level, item_id)
+    for _, event in dist do
         local value = history.value(event.item_id .. ':' .. 0)
 		if not value then
             return

@@ -502,11 +502,13 @@ end
 
 do
 	local function update_bar()
-		if this:GetValue() < 1 then
-			this:SetAlpha(1 - (sin(GetTime() * 180) + 1) / 4)
-		else
+		if not this:IsVisible() then return end
+		if this:GetValue() >= 1 then
 			this:SetAlpha(1)
+			this:SetScript('OnUpdate', nil)
+			return
 		end
+		this:SetAlpha(1 - (sin(GetTime() * 180) + 1) / 4)
 	end
 	function M.status_bar(parent)
 	    local self = CreateFrame('Frame', nil, parent)
@@ -563,9 +565,15 @@ do
 	    function self:update_status(primary_status, secondary_status)
 	        if primary_status then
 	            self.primary_status_bar:SetValue(primary_status)
+	            if primary_status < 1 then
+	                self.primary_status_bar:SetScript('OnUpdate', update_bar)
+	            end
 	        end
 	        if secondary_status then
 	            self.secondary_status_bar:SetValue(secondary_status)
+	            if secondary_status < 1 then
+	                self.secondary_status_bar:SetScript('OnUpdate', update_bar)
+	            end
 	        end
 	    end
 	    function self:set_text(text)

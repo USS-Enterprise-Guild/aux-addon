@@ -284,11 +284,11 @@ function M.tooltip(setter, arg1, arg2)
     end
     local tooltip = T.acquire()
     for i = 1, AuxTooltip:NumLines() do
-        tinsert(tooltip, T.map(
+        tinsert(tooltip, T.temp-T.map(
             'left_text', _G['AuxTooltipTextLeft' .. i]:GetText(),
-            'left_color', T.list(_G['AuxTooltipTextLeft' .. i]:GetTextColor()),
+            'left_color', T.temp-T.list(_G['AuxTooltipTextLeft' .. i]:GetTextColor()),
             'right_text', _G['AuxTooltipTextRight' .. i]:IsVisible() and _G['AuxTooltipTextRight' .. i]:GetText(),
-            'right_color', T.list(_G['AuxTooltipTextRight' .. i]:GetTextColor())
+            'right_color', T.temp-T.list(_G['AuxTooltipTextRight' .. i]:GetTextColor())
         ))
     end
     return tooltip, AuxTooltip.money

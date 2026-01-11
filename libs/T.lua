@@ -45,7 +45,7 @@ end
 function release(t)
 	wipe(t)
 	auto_release[t] = nil
-	if pool_size < 50 then
+	if pool_size < 200 then
 		pool_size = pool_size + 1
 		pool[pool_size] = t
 	else

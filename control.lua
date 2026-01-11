@@ -5,6 +5,7 @@ local T = require 'T'
 local event_frame = CreateFrame('Frame', 'AuxThreadingFrame')
 
 local listeners, threads = T.acquire(), T.acquire()
+local event_counts = {}
 
 local thread_id
 function M.thread_id() return thread_id end
@@ -25,16 +26,6 @@ end
 
 do
 	function UPDATE()
-		for _, listener in listeners do
-			local event, needed = listener.event, false
-			for _, listener in listeners do
-				needed = needed or listener.event == event and not listener.killed
-			end
-			if not needed then
-				event_frame:UnregisterEvent(event)
-			end
-		end
-
 		for id, thread in threads do
 			if thread.killed or not thread.k then
 				threads[id] = nil
@@ -66,6 +57,12 @@ function M.kill_listener(listener_id)
 	local listener = listeners[listener_id]
 	if listener then
 		listener.killed = true
+		local event = listener.event
+		event_counts[event] = event_counts[event] - 1
+		if event_counts[event] == 0 then
+			event_frame:UnregisterEvent(event)
+			event_counts[event] = nil
+		end
 	end
 end
 
@@ -83,6 +80,7 @@ function M.event_listener(event, cb)
 		'cb', cb,
 		'kill', T.vararg-function(arg) if getn(arg) == 0 or arg[1] then kill_listener(listener_id) end end
 	)
+	event_counts[event] = (event_counts[event] or 0) + 1
 	event_frame:RegisterEvent(event)
 	return listener_id
 end

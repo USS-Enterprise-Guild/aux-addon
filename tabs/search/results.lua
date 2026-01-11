@@ -6,12 +6,26 @@ local info = require 'aux.util.info'
 local filter_util = require 'aux.util.filter'
 local scan_util = require 'aux.util.scan'
 local scan = require 'aux.core.scan'
+local auction_cache = require 'aux.core.auction_cache'
 local gui = require 'aux.gui'
 
 search_scan_id = 0
 
 function aux.handle.LOAD()
 	new_search()
+end
+
+-- Check if filter is an exact item search and return item_id if so
+function get_exact_item_id(filter_string)
+	-- Parse the filter to check if it's an exact item search
+	local filter = filter_util.parse_filter_string(filter_string)
+	if not filter or not filter.blizzard then return nil end
+
+	-- Must have exact flag and a name
+	if not filter.blizzard.exact or not filter.blizzard.name then return nil end
+
+	-- Get item_id from the name
+	return info.item_id(filter.blizzard.name)
 end
 
 function update_real_time(enable)
@@ -217,7 +231,7 @@ function start_real_time_scan(query, search, continuation)
 	}
 end
 
-function start_search(queries, continuation)
+function start_search(queries, continuation, cache_item_id)
 	local current_query, current_page, total_queries, start_query, start_page
 
 	local search = current_search()
@@ -275,6 +289,11 @@ function start_search(queries, continuation)
 		on_complete = function()
 			search.status_bar:update_status(1, 1)
 			search.status_bar:set_text('Scan complete')
+
+			-- Populate shared cache for exact item searches
+			if cache_item_id then
+				auction_cache.set(cache_item_id, search.records)
+			end
 
 			if current_search() == search and frame.results:IsVisible() and getn(search.records) == 0 then
 				set_subtab(SAVED)
@@ -340,6 +359,11 @@ function M.execute(resume, real_time)
 			end
 			new_recent_search(filter_string, aux.join(aux.map(aux.copy(queries), function(filter) return filter.prettified end), ';'))
 		else
+			-- Re-searching same filter - invalidate cache to get fresh data
+			local item_id = get_exact_item_id(filter_string)
+			if item_id then
+				auction_cache.invalidate(item_id)
+			end
 			local search = current_search()
 			search.records = T.acquire()
 			search.table:Reset()
@@ -359,6 +383,44 @@ function M.execute(resume, real_time)
 	update_start_stop()
 	clear_control_focus()
 	set_subtab(RESULTS)
+
+	-- Check shared cache for exact item searches (not resuming, not real-time, single query, no page range)
+	if not resume and not real_time and getn(queries) == 1 and not first_page and not last_page then
+		local item_id = get_exact_item_id(filter_string)
+		if item_id then
+			local cached_records = auction_cache.get(item_id)
+			if cached_records then
+				local search = current_search()
+				-- Copy cached records and apply validator
+				local validator = queries[1].validator
+				for _, record in cached_records do
+					if not validator or validator(record) then
+						if getn(search.records) < 2000 then
+							-- Deep copy the record
+							local copy = T.acquire()
+							for k, v in record do
+								copy[k] = v
+							end
+							tinsert(search.records, copy)
+						end
+					end
+				end
+				search.table:SetDatabase(search.records)
+				search.status_bar:update_status(1, 1)
+				search.status_bar:set_text('Loaded from cache')
+				search.active = false
+				update_start_stop()
+				return
+			end
+		end
+	end
+
+	-- Track exact item searches to populate cache on completion
+	local cache_item_id = nil
+	if not resume and not real_time and getn(queries) == 1 and not first_page and not last_page then
+		cache_item_id = get_exact_item_id(filter_string)
+	end
+
 	if real_time then
 		start_real_time_scan(queries[1], nil, continuation)
 	else
@@ -366,7 +428,7 @@ function M.execute(resume, real_time)
 			query.blizzard_query.first_page = current_search().first_page
 			query.blizzard_query.last_page = current_search().last_page
 		end
-		start_search(queries, continuation)
+		start_search(queries, continuation, cache_item_id)
 	end
 end
 

@@ -10,6 +10,7 @@ local scan_util = require 'aux.util.scan'
 local post = require 'aux.core.post'
 local scan = require 'aux.core.scan'
 local history = require 'aux.core.history'
+local auction_cache = require 'aux.core.auction_cache'
 local item_listing = require 'aux.gui.item_listing'
 local al = require 'aux.gui.auction_listing'
 local gui = require 'aux.gui'
@@ -61,6 +62,10 @@ end
 
 function refresh_button_click()
 	scan.abort(scan_id)
+	-- Invalidate cache for this item so we get fresh data
+	if selected_item then
+		auction_cache.invalidate(selected_item.item_id)
+	end
 	refresh_entries()
 	refresh = true
 end
@@ -546,12 +551,16 @@ end
 function refresh_entries()
 	if selected_item then
         local item_key = selected_item.key
+        local item_id = selected_item.item_id
 		set_bid_selection()
         set_buyout_selection()
         bid_records[item_key], buyout_records[item_key] = nil, nil
-        local query = scan_util.item_query(selected_item.item_id)
+        local query = scan_util.item_query(item_id)
         status_bar:update_status(0, 0)
         status_bar:set_text('Scanning auctions...')
+
+        -- Collect raw auction records for shared cache
+        local raw_records = T.acquire()
 
 		scan_id = scan.start{
             type = 'list',
@@ -563,6 +572,8 @@ function refresh_entries()
 			end,
 			on_auction = function(auction_record)
 				if auction_record.item_key == item_key then
+                    -- Store raw record for shared cache
+                    tinsert(raw_records, auction_record)
                     record_auction(
                         auction_record.item_key,
                         auction_record.aux_quantity,
@@ -575,12 +586,16 @@ function refresh_entries()
 			end,
 			on_abort = function()
 				bid_records[item_key], buyout_records[item_key] = nil, nil
+                T.release(raw_records)
                 status_bar:update_status(1, 1)
                 status_bar:set_text('Scan aborted')
 			end,
 			on_complete = function()
 				bid_records[item_key] = bid_records[item_key] or T.acquire()
 				buyout_records[item_key] = buyout_records[item_key] or T.acquire()
+                -- Store raw records in shared cache for search tab
+                auction_cache.set(item_id, raw_records)
+                T.release(raw_records)
                 refresh = true
                 status_bar:update_status(1, 1)
                 status_bar:set_text('Scan complete')

@@ -10,6 +10,7 @@ local scan_util = require 'aux.util.scan'
 local post = require 'aux.core.post'
 local scan = require 'aux.core.scan'
 local history = require 'aux.core.history'
+local auction_cache = require 'aux.core.auction_cache'
 local item_listing = require 'aux.gui.item_listing'
 local al = require 'aux.gui.auction_listing'
 local gui = require 'aux.gui'
@@ -20,11 +21,21 @@ local settings_schema = {'tuple', '#', {duration='number'}, {start_price='number
 
 local scan_id, inventory_records, bid_records, buyout_records = 0, {}, {}, {}
 
+-- Raw auction records for buying (keyed by item_key)
+local raw_auction_records = {}
+
 M.DURATION_2, M.DURATION_8, M.DURATION_24 = 120, 480, 1440
 
 refresh = true
 
 selected_item = nil
+
+-- Buying state machine
+local buy_scan_id = 0
+local IDLE, SEARCHING, FOUND = 1, 2, 3
+local buy_state = IDLE
+local found_auction_record = nil
+local found_auction_index = nil
 
 function get_default_settings()
 	return T.map('duration', aux.account_data.post_duration, 'start_price', 0, 'buyout_price', 0, 'hidden', false, 'stack_size', 1)
@@ -55,12 +66,25 @@ do
 		return buyout_selections[selected_item.key]
 	end
 	function set_buyout_selection(record)
+		if not selected_item then return end
+		local old_selection = buyout_selections[selected_item.key]
 		buyout_selections[selected_item.key] = record
+		-- Reset buying state when selection changes
+		if old_selection ~= record then
+			scan.abort(buy_scan_id)
+			buy_state = IDLE
+			found_auction_record = nil
+			found_auction_index = nil
+		end
 	end
 end
 
 function refresh_button_click()
 	scan.abort(scan_id)
+	-- Invalidate cache for this item so we get fresh data
+	if selected_item then
+		auction_cache.invalidate(selected_item.item_id)
+	end
 	refresh_entries()
 	refresh = true
 end
@@ -74,6 +98,10 @@ end
 function tab.CLOSE()
     selected_item = nil
     frame:Hide()
+    scan.abort(buy_scan_id)
+    buy_state = IDLE
+    found_auction_record = nil
+    found_auction_index = nil
     -- Clean up pooled tables to prevent memory leaks
     for _, records in bid_records do
         if records then
@@ -85,8 +113,14 @@ function tab.CLOSE()
             T.release(records)
         end
     end
+    for _, records in raw_auction_records do
+        if records then
+            T.release(records)
+        end
+    end
     bid_records = {}
     buyout_records = {}
+    raw_auction_records = {}
 end
 
 function tab.USE_ITEM(item_info)
@@ -546,12 +580,29 @@ end
 function refresh_entries()
 	if selected_item then
         local item_key = selected_item.key
+        local item_id = selected_item.item_id
 		set_bid_selection()
         set_buyout_selection()
         bid_records[item_key], buyout_records[item_key] = nil, nil
-        local query = scan_util.item_query(selected_item.item_id)
+
+        -- Reset buying state
+        scan.abort(buy_scan_id)
+        buy_state = IDLE
+        found_auction_record = nil
+        found_auction_index = nil
+
+        -- Clear old raw records for this item
+        if raw_auction_records[item_key] then
+            T.release(raw_auction_records[item_key])
+            raw_auction_records[item_key] = nil
+        end
+
+        local query = scan_util.item_query(item_id)
         status_bar:update_status(0, 0)
         status_bar:set_text('Scanning auctions...')
+
+        -- Collect raw auction records for shared cache and buying
+        local raw_records = T.acquire()
 
 		scan_id = scan.start{
             type = 'list',
@@ -563,6 +614,8 @@ function refresh_entries()
 			end,
 			on_auction = function(auction_record)
 				if auction_record.item_key == item_key then
+                    -- Store raw record for shared cache and buying
+                    tinsert(raw_records, auction_record)
                     record_auction(
                         auction_record.item_key,
                         auction_record.aux_quantity,
@@ -575,12 +628,17 @@ function refresh_entries()
 			end,
 			on_abort = function()
 				bid_records[item_key], buyout_records[item_key] = nil, nil
+                T.release(raw_records)
                 status_bar:update_status(1, 1)
                 status_bar:set_text('Scan aborted')
 			end,
 			on_complete = function()
 				bid_records[item_key] = bid_records[item_key] or T.acquire()
 				buyout_records[item_key] = buyout_records[item_key] or T.acquire()
+                -- Store raw records in shared cache for search tab
+                auction_cache.set(item_id, raw_records)
+                -- Also keep local copy for buying (don't release, just copy reference)
+                raw_auction_records[item_key] = raw_records
                 refresh = true
                 status_bar:update_status(1, 1)
                 status_bar:set_text('Scan complete')
@@ -621,6 +679,95 @@ function record_auction(key, aux_quantity, unit_blizzard_bid, unit_buyout_price,
     end
 end
 
+-- Find a raw auction record matching the aggregated buyout selection
+function find_matching_raw_record()
+    if not selected_item or not get_buyout_selection() then return nil end
+
+    local selection = get_buyout_selection()
+    if selection.historical_value then return nil end  -- Can't buy historical value row
+
+    local records = raw_auction_records[selected_item.key]
+    if not records then return nil end
+
+    -- Find a raw record matching the selection criteria
+    for _, record in records do
+        if record.unit_buyout_price == selection.unit_price
+           and record.aux_quantity == selection.stack_size
+           and record.duration == selection.duration
+           and not info.is_player(record.owner) then  -- Can't buy from yourself
+            return record
+        end
+    end
+    return nil
+end
+
+-- Find the auction in the AH for buying
+function find_auction_for_buy(record)
+    if not record or info.is_player(record.owner) then
+        return
+    end
+
+    scan.abort(buy_scan_id)
+    buy_state = SEARCHING
+    found_auction_record = nil
+    found_auction_index = nil
+
+    buy_scan_id = scan_util.find(
+        record,
+        status_bar,
+        function()  -- on_abort
+            buy_state = IDLE
+        end,
+        function()  -- on_failure
+            buy_state = IDLE
+            -- Remove the record from raw_auction_records since it's gone
+            if selected_item and raw_auction_records[selected_item.key] then
+                for i, r in raw_auction_records[selected_item.key] do
+                    if r == record then
+                        tremove(raw_auction_records[selected_item.key], i)
+                        break
+                    end
+                end
+            end
+        end,
+        function(index)  -- on_success
+            buy_state = FOUND
+            found_auction_record = record
+            found_auction_index = index
+
+            -- Configure buyout button
+            buyout_button:SetScript('OnClick', function()
+                if scan_util.test(record, index) then
+                    aux.place_bid('list', index, record.buyout_price, function()
+                        -- Remove from raw records
+                        if selected_item and raw_auction_records[selected_item.key] then
+                            for i, r in raw_auction_records[selected_item.key] do
+                                if r == record then
+                                    tremove(raw_auction_records[selected_item.key], i)
+                                    break
+                                end
+                            end
+                        end
+                        -- Decrement count in aggregated record
+                        local selection = get_buyout_selection()
+                        if selection then
+                            selection.count = selection.count - 1
+                            if selection.count <= 0 then
+                                set_buyout_selection()
+                            end
+                        end
+                        buy_state = IDLE
+                        found_auction_record = nil
+                        found_auction_index = nil
+                        refresh = true
+                    end)
+                end
+            end)
+            buyout_button:Enable()
+        end
+    )
+end
+
 function on_update()
     if refresh then
         refresh = false
@@ -630,6 +777,32 @@ function on_update()
         update_auction_listings()
     end
     validate_parameters()
+
+    -- Handle buying state
+    if buy_state == IDLE or buy_state == SEARCHING then
+        buyout_button:Disable()
+    end
+
+    if buy_state == SEARCHING then return end
+
+    local selection = get_buyout_selection()
+    if not selection or selection.historical_value or selection.own then
+        buy_state = IDLE
+        buyout_button:Disable()
+    elseif buy_state == IDLE then
+        local raw_record = find_matching_raw_record()
+        if raw_record then
+            find_auction_for_buy(raw_record)
+        end
+    elseif buy_state == FOUND then
+        -- Verify the found auction is still valid
+        if not found_auction_record or not scan_util.test(found_auction_record, found_auction_index) then
+            buyout_button:Disable()
+            if not aux.bid_in_progress() then
+                buy_state = IDLE
+            end
+        end
+    end
 end
 
 function initialize_duration_dropdown()

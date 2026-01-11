@@ -27,6 +27,7 @@ util\filter.lua
 util\completion.lua
 core\slash.lua
 core\scan.lua
+core\auction_cache.lua
 util\scan.lua
 core\stack.lua
 core\post.lua

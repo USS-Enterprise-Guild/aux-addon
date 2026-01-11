@@ -439,7 +439,9 @@ do
 
 		if state == SEARCHING then return end
 
-		local selection = current_search().table:GetSelection()
+		local search = current_search()
+		if not search then return end
+		local selection = search.table:GetSelection()
 		if not selection then
 			state = IDLE
 		elseif selection and state == IDLE then

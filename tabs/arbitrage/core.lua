@@ -32,6 +32,9 @@ local MAX_STORED_RECORDS = 5  -- limit records per item for memory
 
 refresh = true
 
+-- Forward declare internal function (defined in background scanning section)
+local stop_background_scan
+
 function aux.handle.LOAD2()
     -- Load saved candidates from account data
     if aux.account_data.arbitrage_candidates then
@@ -518,7 +521,8 @@ function M.start_background_scan()
     aux.print('Background scanning started (' .. getn(candidates) .. ' items, ' .. bg_scan_interval .. 's interval)')
 end
 
-function stop_background_scan()
+-- Assign to forward-declared local
+stop_background_scan = function()
     bg_scan_enabled = false
     bg_scan_paused = false
     refresh = true

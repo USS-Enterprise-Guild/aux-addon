@@ -6,7 +6,7 @@ Fetches auction data from wowauctions.net and identifies vendor flip opportuniti
 items listed below their vendor sell price. Buy from AH, sell to vendor for profit.
 
 Usage:
-    python scanner.py [--server turtle-wow] [--realm nordanaar] [--faction alliance]
+    python scanner.py [--server turtle-wow] [--realm nordanaar] [--faction merged_ah]
 """
 
 import argparse
@@ -60,7 +60,7 @@ class ArbitrageOpportunity:
 class WowAuctionsScraper:
     BASE_URL = "https://www.wowauctions.net"
 
-    def __init__(self, server: str = "turtle-wow", realm: str = "nordanaar", faction: str = "alliance"):
+    def __init__(self, server: str = "turtle-wow", realm: str = "nordanaar", faction: str = "merged_ah"):
         self.server = server
         self.realm = realm
         self.faction = faction
@@ -244,7 +244,7 @@ def main():
     parser = argparse.ArgumentParser(description='WoW Auction Arbitrage Scanner')
     parser.add_argument('--server', default='turtle-wow', help='Server name')
     parser.add_argument('--realm', default='nordanaar', help='Realm name')
-    parser.add_argument('--faction', default='alliance', help='Faction (alliance/horde)')
+    parser.add_argument('--faction', default='merged_ah', help='Faction (alliance/horde/merged_ah)')
     parser.add_argument('--min-profit', type=int, default=1000, help='Minimum profit in copper (default: 1000 = 10s)')
     parser.add_argument('--delay', type=float, default=0.5, help='Delay between requests in seconds')
     parser.add_argument('--output', default='arbitrage_candidates.json', help='Output file path')

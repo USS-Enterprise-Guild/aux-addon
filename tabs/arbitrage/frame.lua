@@ -249,39 +249,45 @@ function update_candidate_listing()
     for _, candidate in candidates do
         local result = get_scan_result(candidate.item_id)
         local status = '---'
-        local show_item = true
+        local profit = 0  -- for sorting
 
         if result then
             local profit_info = calculate_profit(result)
             if profit_info then
                 status = aux.color.green('+' .. money.to_string(profit_info.profit, true, true))
+                profit = profit_info.profit
             elseif result.min_buyout then
-                -- Scanned but not profitable - hide it
-                show_item = false
+                -- Scanned but not profitable
+                status = aux.color.red('no profit')
+                profit = -1  -- sort below unscanned
             else
                 -- No listings found
                 status = aux.color.label.enabled('none')
-                show_item = false
+                profit = -2  -- sort at bottom
             end
         end
 
-        if show_item then
-            -- Show vendor price from result
-            local vendor_str = '---'
-            if result and result.vendor_price and result.vendor_price > 0 then
-                vendor_str = money.to_string(result.vendor_price, true, true)
-            end
-
-            tinsert(rows, {
-                cols = {
-                    {value = candidate.item_name},
-                    {value = vendor_str},
-                    {value = status},
-                },
-                candidate = candidate,
-            })
+        -- Show vendor price from result
+        local vendor_str = '---'
+        if result and result.vendor_price and result.vendor_price > 0 then
+            vendor_str = money.to_string(result.vendor_price, true, true)
         end
+
+        tinsert(rows, {
+            cols = {
+                {value = candidate.item_name},
+                {value = vendor_str},
+                {value = status},
+            },
+            candidate = candidate,
+            sort_profit = profit,
+        })
     end
+
+    -- Sort by profit descending (most profitable first)
+    sort(rows, function(a, b)
+        return a.sort_profit > b.sort_profit
+    end)
 
     candidate_listing:SetData(rows)
 end

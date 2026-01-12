@@ -34,6 +34,13 @@ refresh = true
 -- Forward declare internal function (defined in background scanning section)
 local stop_background_scan
 
+-- Get vendor sell price for an item using tooltip
+local function get_vendor_price(item_id)
+    local itemstring = 'item:' .. item_id .. ':0:0:0'
+    local _, vendor_price = info.tooltip('link', itemstring)
+    return vendor_price or 0
+end
+
 function aux.handle.LOAD2()
     -- Load saved candidates from account data
     if aux.account_data.arbitrage_candidates then
@@ -89,7 +96,7 @@ function M.add_candidate(item_name)
     tinsert(candidates, {
         item_id = item_id,
         item_name = item_info.name,
-        vendor_price = item_info.sell_price or 0,
+        vendor_price = get_vendor_price(item_id),
         added_time = time(),
     })
 
@@ -117,7 +124,7 @@ function M.add_candidate_by_id(item_id)
     tinsert(candidates, {
         item_id = item_id,
         item_name = item_info.name,
-        vendor_price = item_info.sell_price or 0,
+        vendor_price = get_vendor_price(item_id),
         added_time = time(),
     })
 
@@ -235,9 +242,8 @@ function M.scan_candidate(candidate)
                 return a.unit_buyout_price < b.unit_buyout_price
             end)
 
-            -- Get vendor price
-            local item_info = info.item(item_id)
-            local vendor_price = item_info and item_info.sell_price or 0
+            -- Get vendor price via tooltip
+            local vendor_price = get_vendor_price(item_id)
 
             scan_results[item_id] = {
                 item_id = item_id,
@@ -329,8 +335,7 @@ function M.scan_all_candidates()
                     return a.unit_buyout_price < b.unit_buyout_price
                 end)
 
-                local item_info = info.item(item_id)
-                local vendor_price = item_info and item_info.sell_price or 0
+                local vendor_price = get_vendor_price(item_id)
 
                 scan_results[item_id] = {
                     item_id = item_id,
@@ -592,9 +597,8 @@ local function background_scan_item(candidate, on_complete)
                 T.release(old_result.records)
             end
 
-            -- Get vendor price
-            local item_info = info.item(item_id)
-            local vendor_price = item_info and item_info.sell_price or 0
+            -- Get vendor price via tooltip
+            local vendor_price = get_vendor_price(item_id)
 
             -- Convert to pooled table for records
             local records = T.acquire()

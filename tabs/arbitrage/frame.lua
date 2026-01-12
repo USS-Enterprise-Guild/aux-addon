@@ -116,12 +116,12 @@ function aux.handle.INIT_UI()
         local btn = gui.button(frame.candidates)
         btn:SetPoint('LEFT', scan_all_button, 'RIGHT', 5, 0)
         btn:SetWidth(70)
-        btn:SetText('Auto')
+        btn:SetText('Scan AH')
         btn:SetScript('OnClick', function()
-            if is_background_scanning() then
-                stop_background_scan()
+            if is_full_ah_scanning() then
+                stop_full_ah_scan()
             else
-                start_background_scan()
+                start_full_ah_scan()
             end
         end)
         background_button = btn
@@ -387,14 +387,14 @@ function update_result_display()
 end
 
 function update_background_button()
-    if is_background_scanning() then
-        background_button:SetText('Stop')
-        -- Show progress in button tooltip or color
-        local progress = get_background_progress()
-        if progress then
-            background_button:SetText(format('Stop (%d/%d)', progress.current, progress.total))
+    if is_full_ah_scanning() then
+        local progress = get_full_ah_progress()
+        if progress and progress.total_pages > 0 then
+            background_button:SetText(format('Stop (%d)', progress.candidates_found))
+        else
+            background_button:SetText('Stop')
         end
     else
-        background_button:SetText('Auto')
+        background_button:SetText('Scan AH')
     end
 end

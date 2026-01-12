@@ -29,10 +29,20 @@ local bg_last_scan_time = 0
 local bg_scan_paused = false  -- pause during manual operations
 local MAX_STORED_RECORDS = 5  -- limit records per item for memory
 
+-- Full AH scan state (discovers new candidates)
+local full_ah_scan_enabled = false
+local full_ah_scan_id = 0
+local full_ah_scan_page = 0
+local full_ah_scan_total_pages = 0
+local full_ah_scan_auctions_checked = 0
+local full_ah_scan_candidates_found = 0
+local full_ah_items_seen = {}  -- track items we've already checked this scan
+
 refresh = true
 
--- Forward declare internal function (defined in background scanning section)
+-- Forward declare internal functions (defined in background scanning section)
 local stop_background_scan
+local stop_full_ah_scan
 
 -- Get vendor sell price for an item from cache, ShaguTweaks, or tooltip
 -- Matches logic from core/tooltip.lua
@@ -77,6 +87,7 @@ end
 function tab.CLOSE()
     frame:Hide()
     stop_background_scan()
+    stop_full_ah_scan()
     scan.abort(scan_id)
     scan.abort(buy_scan_id)
     buy_state = IDLE
@@ -481,8 +492,11 @@ function on_update()
         update_background_button()
     end
 
-    -- Process background scanning
+    -- Process background scanning (but not during full AH scan)
     process_background_scan()
+
+    -- Don't process buying during full AH scan
+    if full_ah_scan_enabled then return end
 
     -- Handle buying state
     if buy_state == IDLE or buy_state == SEARCHING then
@@ -647,6 +661,7 @@ end
 function process_background_scan()
     if not bg_scan_enabled then return end
     if bg_scan_paused then return end
+    if full_ah_scan_enabled then return end  -- Don't interfere with full AH scan
     if buy_state == SEARCHING then return end  -- Don't interfere with buying
     if getn(candidates) == 0 then
         stop_background_scan()
@@ -706,4 +721,156 @@ function M.import_candidates(import_list)
     end
     aux.print(format('Imported %d candidates', count))
     return count
+end
+
+-- Full AH Scan functions
+-- Scans entire AH to discover items that can be vendored for profit
+
+-- Assign stop_full_ah_scan to forward-declared local
+stop_full_ah_scan = function()
+    if full_ah_scan_enabled then
+        scan.abort(full_ah_scan_id)
+        full_ah_scan_enabled = false
+        full_ah_scan_id = 0
+        full_ah_items_seen = {}
+        refresh = true
+    end
+end
+
+function M.stop_full_ah_scan()
+    stop_full_ah_scan()
+    if full_ah_scan_candidates_found > 0 then
+        aux.print(format('Full AH scan stopped. Found %d candidates from %d auctions.',
+            full_ah_scan_candidates_found, full_ah_scan_auctions_checked))
+    else
+        aux.print('Full AH scan stopped.')
+    end
+end
+
+function M.is_full_ah_scanning()
+    return full_ah_scan_enabled
+end
+
+function M.get_full_ah_progress()
+    if not full_ah_scan_enabled then
+        return nil
+    end
+    return {
+        page = full_ah_scan_page,
+        total_pages = full_ah_scan_total_pages,
+        auctions_checked = full_ah_scan_auctions_checked,
+        candidates_found = full_ah_scan_candidates_found,
+    }
+end
+
+-- Check if an auction is a vendor flip opportunity and add to candidates
+local function check_auction_for_arbitrage(auction_record)
+    if not auction_record then return end
+    if not auction_record.buyout_price or auction_record.buyout_price == 0 then return end
+    if info.is_player(auction_record.owner) then return end
+
+    local item_id = auction_record.item_id
+    if not item_id then return end
+
+    -- Skip if we've already checked this item this scan
+    if full_ah_items_seen[item_id] then return end
+    full_ah_items_seen[item_id] = true
+
+    full_ah_scan_auctions_checked = full_ah_scan_auctions_checked + 1
+
+    -- Check if already in candidates
+    for _, candidate in candidates do
+        if candidate.item_id == item_id then
+            return  -- Already tracking this item
+        end
+    end
+
+    -- Get vendor price
+    local vendor_price = get_vendor_price(item_id)
+    if not vendor_price or vendor_price == 0 then return end
+
+    -- Check if this is a vendor flip opportunity
+    local unit_buyout = auction_record.unit_buyout_price
+    if unit_buyout < vendor_price then
+        -- Found a profitable item! Add to candidates
+        local item_info = info.item(item_id)
+        if item_info then
+            tinsert(candidates, {
+                item_id = item_id,
+                item_name = item_info.name,
+                added_time = time(),
+            })
+            save_candidates()
+            full_ah_scan_candidates_found = full_ah_scan_candidates_found + 1
+
+            -- Store initial scan result for this item
+            scan_results[item_id] = {
+                item_id = item_id,
+                item_name = item_info.name,
+                min_buyout = unit_buyout,
+                total_count = auction_record.aux_quantity,
+                vendor_price = vendor_price,
+                records = T.list(auction_record),
+                scan_time = time(),
+            }
+
+            refresh = true
+        end
+    end
+end
+
+function M.start_full_ah_scan()
+    -- Stop any existing scans
+    stop_background_scan()
+    stop_full_ah_scan()
+    scan.abort(scan_id)
+
+    full_ah_scan_enabled = true
+    full_ah_scan_page = 0
+    full_ah_scan_total_pages = 0
+    full_ah_scan_auctions_checked = 0
+    full_ah_scan_candidates_found = 0
+    full_ah_items_seen = {}
+    refresh = true
+
+    aux.print('Starting full AH scan for vendor flip opportunities...')
+    status_bar:update_status(0, 0)
+    status_bar:set_text('Scanning AH for arbitrage...')
+
+    -- Create a query with empty blizzard_query to scan all items
+    local query = T.map('blizzard_query', T.acquire())
+
+    full_ah_scan_id = scan.start{
+        type = 'list',
+        ignore_owner = true,
+        queries = T.list(query),
+        on_page_loaded = function(page, total_pages)
+            full_ah_scan_page = page
+            full_ah_scan_total_pages = total_pages
+            status_bar:update_status(page / max(1, total_pages), 0)
+            status_bar:set_text(format('Scanning AH: Page %d/%d (%d found)',
+                page + 1, total_pages, full_ah_scan_candidates_found))
+            refresh = true
+        end,
+        on_auction = function(auction_record)
+            check_auction_for_arbitrage(auction_record)
+        end,
+        on_abort = function()
+            full_ah_scan_enabled = false
+            full_ah_scan_id = 0
+            status_bar:update_status(1, 1)
+            status_bar:set_text('Scan aborted')
+            refresh = true
+        end,
+        on_complete = function()
+            full_ah_scan_enabled = false
+            full_ah_scan_id = 0
+            status_bar:update_status(1, 1)
+            status_bar:set_text(format('Complete: %d candidates from %d items',
+                full_ah_scan_candidates_found, full_ah_scan_auctions_checked))
+            aux.print(format('Full AH scan complete! Found %d vendor flip candidates from %d unique items.',
+                full_ah_scan_candidates_found, full_ah_scan_auctions_checked))
+            refresh = true
+        end,
+    }
 end

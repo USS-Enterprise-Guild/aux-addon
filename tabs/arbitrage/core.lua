@@ -22,6 +22,14 @@ local buy_scan_id = 0
 local found_auction_record = nil
 local found_auction_index = nil
 
+-- Background scanning state
+local bg_scan_enabled = false
+local bg_scan_index = 0
+local bg_scan_interval = 2  -- seconds between each item scan
+local bg_last_scan_time = 0
+local bg_scan_paused = false  -- pause during manual operations
+local MAX_STORED_RECORDS = 5  -- limit records per item for memory
+
 refresh = true
 
 function aux.handle.LOAD2()
@@ -38,12 +46,20 @@ end
 
 function tab.CLOSE()
     frame:Hide()
+    stop_background_scan()
     scan.abort(scan_id)
     scan.abort(buy_scan_id)
     buy_state = IDLE
     found_auction_record = nil
     found_auction_index = nil
     selected_candidate = nil
+    -- Release records to free memory when leaving tab
+    for item_id, result in scan_results do
+        if result.records then
+            T.release(result.records)
+            result.records = nil
+        end
+    end
 end
 
 -- Add a candidate item by name (will resolve to item_id)
@@ -451,7 +467,11 @@ function on_update()
         refresh = false
         update_candidate_listing()
         update_result_display()
+        update_background_button()
     end
+
+    -- Process background scanning
+    process_background_scan()
 
     -- Handle buying state
     if buy_state == IDLE or buy_state == SEARCHING then
@@ -481,6 +501,191 @@ function on_update()
             end
         end
     end
+end
+
+-- Background scanning functions
+
+function M.start_background_scan()
+    if getn(candidates) == 0 then
+        aux.print('No candidates to scan')
+        return
+    end
+    bg_scan_enabled = true
+    bg_scan_index = 0
+    bg_last_scan_time = 0
+    bg_scan_paused = false
+    refresh = true
+    aux.print('Background scanning started (' .. getn(candidates) .. ' items, ' .. bg_scan_interval .. 's interval)')
+end
+
+function stop_background_scan()
+    bg_scan_enabled = false
+    bg_scan_paused = false
+    refresh = true
+end
+
+function M.stop_background_scan()
+    stop_background_scan()
+    aux.print('Background scanning stopped')
+end
+
+function M.is_background_scanning()
+    return bg_scan_enabled
+end
+
+function M.is_background_paused()
+    return bg_scan_paused
+end
+
+function M.set_scan_interval(seconds)
+    bg_scan_interval = max(1, min(30, seconds))
+    aux.print('Scan interval set to ' .. bg_scan_interval .. 's')
+end
+
+function M.get_scan_interval()
+    return bg_scan_interval
+end
+
+-- Memory-efficient background scan for a single item
+-- Only keeps summary + limited records for buying
+local function background_scan_item(candidate, on_complete)
+    if not candidate then
+        if on_complete then on_complete() end
+        return
+    end
+
+    local item_id = candidate.item_id
+    local item_key = item_id .. ':0:0'
+
+    -- Lightweight record collection
+    local min_buyout = nil
+    local total_count = 0
+    local top_records = {}  -- Only keep cheapest N records
+    local query = scan_util.item_query(item_id)
+
+    scan_id = scan.start{
+        type = 'list',
+        ignore_owner = true,
+        queries = T.list(query),
+        on_auction = function(auction_record)
+            if auction_record.item_id == item_id and
+               auction_record.buyout_price > 0 and
+               not info.is_player(auction_record.owner) then
+
+                total_count = total_count + auction_record.aux_quantity
+                local unit_price = auction_record.unit_buyout_price
+
+                if not min_buyout or unit_price < min_buyout then
+                    min_buyout = unit_price
+                end
+
+                -- Only keep top N cheapest records for memory efficiency
+                if getn(top_records) < MAX_STORED_RECORDS then
+                    tinsert(top_records, auction_record)
+                    -- Keep sorted
+                    sort(top_records, function(a, b)
+                        return a.unit_buyout_price < b.unit_buyout_price
+                    end)
+                elseif unit_price < top_records[MAX_STORED_RECORDS].unit_buyout_price then
+                    -- Replace the most expensive one
+                    top_records[MAX_STORED_RECORDS] = auction_record
+                    sort(top_records, function(a, b)
+                        return a.unit_buyout_price < b.unit_buyout_price
+                    end)
+                end
+            end
+        end,
+        on_abort = function()
+            bg_scan_paused = false
+            if on_complete then on_complete() end
+        end,
+        on_complete = function()
+            -- Release old records for this item
+            local old_result = scan_results[item_id]
+            if old_result and old_result.records then
+                T.release(old_result.records)
+            end
+
+            -- Get vendor price and historical value
+            local item_info = info.item(item_id)
+            local vendor_price = item_info and item_info.sell_price or 0
+            local historical_value = history.value(item_key) or 0
+
+            -- Convert to pooled table for records
+            local records = T.acquire()
+            for _, r in top_records do
+                tinsert(records, r)
+            end
+
+            scan_results[item_id] = {
+                item_id = item_id,
+                item_name = candidate.item_name,
+                min_buyout = min_buyout,
+                total_count = total_count,
+                vendor_price = vendor_price,
+                historical_value = historical_value,
+                records = records,
+                scan_time = time(),
+            }
+
+            refresh = true
+            bg_scan_paused = false
+            if on_complete then on_complete() end
+        end,
+    }
+end
+
+-- Called from on_update to drive background scanning
+function process_background_scan()
+    if not bg_scan_enabled then return end
+    if bg_scan_paused then return end
+    if buy_state == SEARCHING then return end  -- Don't interfere with buying
+    if getn(candidates) == 0 then
+        stop_background_scan()
+        return
+    end
+
+    local now = GetTime()
+    if now - bg_last_scan_time < bg_scan_interval then
+        return
+    end
+
+    bg_last_scan_time = now
+    bg_scan_index = bg_scan_index + 1
+    if bg_scan_index > getn(candidates) then
+        bg_scan_index = 1  -- Loop back to start
+    end
+
+    local candidate = candidates[bg_scan_index]
+    if candidate then
+        bg_scan_paused = true  -- Pause until this scan completes
+        status_bar:set_text(format('[BG %d/%d] %s', bg_scan_index, getn(candidates), candidate.item_name))
+        background_scan_item(candidate)
+    end
+end
+
+-- Get background scan progress info
+function M.get_background_progress()
+    if not bg_scan_enabled then
+        return nil
+    end
+    return {
+        current = bg_scan_index,
+        total = getn(candidates),
+        paused = bg_scan_paused,
+        interval = bg_scan_interval,
+    }
+end
+
+-- Clear old scan results to free memory
+function M.clear_scan_results()
+    for item_id, result in scan_results do
+        if result.records then
+            T.release(result.records)
+        end
+    end
+    scan_results = {}
+    refresh = true
 end
 
 -- Import candidates from a Lua table (for external tool integration)

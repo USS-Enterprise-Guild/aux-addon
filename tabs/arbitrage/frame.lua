@@ -105,7 +105,7 @@ function aux.handle.INIT_UI()
     do
         local btn = gui.button(frame.candidates)
         btn:SetPoint('BOTTOMLEFT', 10, 10)
-        btn:SetWidth(80)
+        btn:SetWidth(70)
         btn:SetText('Scan All')
         btn:SetScript('OnClick', function()
             scan_all_candidates()
@@ -115,8 +115,22 @@ function aux.handle.INIT_UI()
     do
         local btn = gui.button(frame.candidates)
         btn:SetPoint('LEFT', scan_all_button, 'RIGHT', 5, 0)
-        btn:SetWidth(80)
-        btn:SetText('Clear All')
+        btn:SetWidth(70)
+        btn:SetText('Auto')
+        btn:SetScript('OnClick', function()
+            if is_background_scanning() then
+                stop_background_scan()
+            else
+                start_background_scan()
+            end
+        end)
+        background_button = btn
+    end
+    do
+        local btn = gui.button(frame.candidates)
+        btn:SetPoint('LEFT', background_button, 'RIGHT', 5, 0)
+        btn:SetWidth(55)
+        btn:SetText('Clear')
         btn:SetScript('OnClick', function()
             clear_candidates()
         end)
@@ -363,4 +377,17 @@ function update_result_display()
         end
     end
     auction_listing:SetData(rows)
+end
+
+function update_background_button()
+    if is_background_scanning() then
+        background_button:SetText('Stop')
+        -- Show progress in button tooltip or color
+        local progress = get_background_progress()
+        if progress then
+            background_button:SetText(format('Stop (%d/%d)', progress.current, progress.total))
+        end
+    else
+        background_button:SetText('Auto')
+    end
 end

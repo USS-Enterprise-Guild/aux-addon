@@ -1,0 +1,6 @@
+__pycache__/
+*.pyc
+test_items.json
+venv/
+arbitrage_candidates.json
+arbitrage_candidates.txt

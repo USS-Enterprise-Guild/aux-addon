@@ -109,11 +109,20 @@ function SlashCmdList.AUX(command)
 				aux.print('  - ' .. c.item_name .. ' (' .. c.opportunity_type .. ')')
 			end
 		end
+	elseif arguments[1] == 'arb' and arguments[2] == 'start' then
+		arbitrage.start_background_scan()
+	elseif arguments[1] == 'arb' and arguments[2] == 'stop' then
+		arbitrage.stop_background_scan()
+	elseif arguments[1] == 'arb' and arguments[2] == 'interval' and tonumber(arguments[3]) then
+		arbitrage.set_scan_interval(tonumber(arguments[3]))
 	elseif arguments[1] == 'arb' then
 		aux.print('Arbitrage commands:')
 		aux.print('- arb add <item> - Add item to candidates')
 		aux.print('- arb clear - Clear all candidates')
 		aux.print('- arb list - List all candidates')
+		aux.print('- arb start - Start background scanning')
+		aux.print('- arb stop - Stop background scanning')
+		aux.print('- arb interval <sec> - Set scan interval (1-30s, current: ' .. arbitrage.get_scan_interval() .. 's)')
 	else
 		aux.print('Usage:')
 		aux.print('- scale [' .. aux.color.blue(aux.account_data.scale) .. ']')

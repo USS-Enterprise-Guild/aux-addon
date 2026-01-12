@@ -5,6 +5,7 @@ local aux = require 'aux'
 local info = require 'aux.util.info'
 local post = require 'aux.tabs.post'
 local purchase_summary = require 'aux.util.purchase_summary'
+local arbitrage = require 'aux.tabs.arbitrage'
 
 function status(enabled)
 	return (enabled and aux.color.green'on' or aux.color.red'off')
@@ -84,6 +85,35 @@ function SlashCmdList.AUX(command)
 		if not aux.account_data.purchase_summary then
 			purchase_summary.hide()
 		end
+	elseif arguments[1] == 'arb' and arguments[2] == 'add' and arguments[3] then
+		-- Add item to arbitrage candidates: /aux arb add <item name or link>
+		-- Reconstruct item name from remaining arguments
+		local parts = {}
+		for i = 3, getn(arguments) do
+			tinsert(parts, arguments[i])
+		end
+		local item_name = table.concat(parts, ' ')
+		if arbitrage.add_candidate(item_name) then
+			aux.print('Added to arbitrage: ' .. item_name)
+		end
+	elseif arguments[1] == 'arb' and arguments[2] == 'clear' then
+		arbitrage.clear_candidates()
+		aux.print('Arbitrage candidates cleared')
+	elseif arguments[1] == 'arb' and arguments[2] == 'list' then
+		local candidates = arbitrage.get_candidates()
+		if getn(candidates) == 0 then
+			aux.print('No arbitrage candidates')
+		else
+			aux.print('Arbitrage candidates (' .. getn(candidates) .. '):')
+			for _, c in candidates do
+				aux.print('  - ' .. c.item_name .. ' (' .. c.opportunity_type .. ')')
+			end
+		end
+	elseif arguments[1] == 'arb' then
+		aux.print('Arbitrage commands:')
+		aux.print('- arb add <item> - Add item to candidates')
+		aux.print('- arb clear - Clear all candidates')
+		aux.print('- arb list - List all candidates')
 	else
 		aux.print('Usage:')
 		aux.print('- scale [' .. aux.color.blue(aux.account_data.scale) .. ']')
@@ -106,5 +136,6 @@ function SlashCmdList.AUX(command)
             aux.color[aux.account_data.theme == 'modern' and 'green' or 'red']('modern') .. ']')
 		aux.print('- show hidden [' .. status(aux.account_data.showhidden) .. ']')
 		aux.print('- purchase summary [' .. status(aux.account_data.purchase_summary) .. ']')
+		aux.print('- arb (arbitrage commands)')
     end
 end

@@ -54,6 +54,9 @@ tabs\auctions\frame.lua
 tabs\bids\core.lua
 tabs\bids\frame.lua
 
+tabs\arbitrage\core.lua
+tabs\arbitrage\frame.lua
+
 core\crafting.lua
 
 localization.lua

@@ -6,7 +6,6 @@ local info = require 'aux.util.info'
 local money = require 'aux.util.money'
 local scan_util = require 'aux.util.scan'
 local scan = require 'aux.core.scan'
-local history = require 'aux.core.history'
 
 local tab = aux.tab 'Arbitrage'
 
@@ -66,7 +65,7 @@ function tab.CLOSE()
 end
 
 -- Add a candidate item by name (will resolve to item_id)
-function M.add_candidate(item_name, opportunity_type, target_price)
+function M.add_candidate(item_name)
     local item_id = info.item_id(item_name)
     if not item_id then
         aux.print('Item not found: ' .. item_name)
@@ -79,11 +78,18 @@ function M.add_candidate(item_name, opportunity_type, target_price)
         return false
     end
 
+    -- Check for duplicates
+    for _, candidate in candidates do
+        if candidate.item_id == item_id then
+            aux.print('Item already in list: ' .. item_info.name)
+            return false
+        end
+    end
+
     tinsert(candidates, {
         item_id = item_id,
         item_name = item_info.name,
-        opportunity_type = opportunity_type or 'market',
-        target_price = target_price or 0,
+        vendor_price = item_info.sell_price or 0,
         added_time = time(),
     })
 
@@ -93,7 +99,7 @@ function M.add_candidate(item_name, opportunity_type, target_price)
 end
 
 -- Add candidate by item_id directly
-function M.add_candidate_by_id(item_id, opportunity_type, target_price)
+function M.add_candidate_by_id(item_id)
     local item_info = info.item(item_id)
     if not item_info then
         aux.print('Could not get item info for id: ' .. item_id)
@@ -111,8 +117,7 @@ function M.add_candidate_by_id(item_id, opportunity_type, target_price)
     tinsert(candidates, {
         item_id = item_id,
         item_name = item_info.name,
-        opportunity_type = opportunity_type or 'market',
-        target_price = target_price or 0,
+        vendor_price = item_info.sell_price or 0,
         added_time = time(),
     })
 
@@ -182,7 +187,6 @@ function M.scan_candidate(candidate)
     if not candidate then return end
 
     local item_id = candidate.item_id
-    local item_key = item_id .. ':0:0'  -- Standard item key format
 
     scan.abort(scan_id)
     status_bar:update_status(0, 0)
@@ -231,10 +235,9 @@ function M.scan_candidate(candidate)
                 return a.unit_buyout_price < b.unit_buyout_price
             end)
 
-            -- Get vendor price and historical value
+            -- Get vendor price
             local item_info = info.item(item_id)
             local vendor_price = item_info and item_info.sell_price or 0
-            local historical_value = history.value(item_key) or 0
 
             scan_results[item_id] = {
                 item_id = item_id,
@@ -242,7 +245,6 @@ function M.scan_candidate(candidate)
                 min_buyout = min_buyout,
                 total_count = total_count,
                 vendor_price = vendor_price,
-                historical_value = historical_value,
                 records = buyable_records,
                 scan_time = time(),
             }
@@ -289,7 +291,6 @@ function M.scan_all_candidates()
         status_bar:set_text(format('Scanning %d/%d: %s', index, total, candidate.item_name))
 
         local item_id = candidate.item_id
-        local item_key = item_id .. ':0:0'
         local records = T.acquire()
         local query = scan_util.item_query(item_id)
 
@@ -330,7 +331,6 @@ function M.scan_all_candidates()
 
                 local item_info = info.item(item_id)
                 local vendor_price = item_info and item_info.sell_price or 0
-                local historical_value = history.value(item_key) or 0
 
                 scan_results[item_id] = {
                     item_id = item_id,
@@ -338,7 +338,6 @@ function M.scan_all_candidates()
                     min_buyout = min_buyout,
                     total_count = total_count,
                     vendor_price = vendor_price,
-                    historical_value = historical_value,
                     records = buyable_records,
                     scan_time = time(),
                 }
@@ -355,37 +354,21 @@ function M.scan_all_candidates()
     scan_next()
 end
 
--- Calculate profit for a scan result
+-- Calculate vendor flip profit for a scan result
 function M.calculate_profit(result)
     if not result or not result.min_buyout then
         return nil
     end
 
-    local profits = {}
-
-    -- Vendor profit
+    -- Vendor profit only - guaranteed profit
     if result.vendor_price and result.vendor_price > result.min_buyout then
-        profits.vendor = {
-            type = 'vendor',
+        return {
             profit = result.vendor_price - result.min_buyout,
-            target = result.vendor_price,
+            vendor_price = result.vendor_price,
         }
     end
 
-    -- Market profit (need to account for AH cut when reselling)
-    if result.historical_value and result.historical_value > 0 then
-        local ah_cut = 0.05
-        local net_resale = result.historical_value * (1 - ah_cut)
-        if net_resale > result.min_buyout then
-            profits.market = {
-                type = 'market',
-                profit = floor(net_resale - result.min_buyout),
-                target = result.historical_value,
-            }
-        end
-    end
-
-    return profits
+    return nil
 end
 
 -- Find cheapest auction for buying
@@ -559,7 +542,6 @@ local function background_scan_item(candidate, on_complete)
     end
 
     local item_id = candidate.item_id
-    local item_key = item_id .. ':0:0'
 
     -- Lightweight record collection
     local min_buyout = nil
@@ -610,10 +592,9 @@ local function background_scan_item(candidate, on_complete)
                 T.release(old_result.records)
             end
 
-            -- Get vendor price and historical value
+            -- Get vendor price
             local item_info = info.item(item_id)
             local vendor_price = item_info and item_info.sell_price or 0
-            local historical_value = history.value(item_key) or 0
 
             -- Convert to pooled table for records
             local records = T.acquire()
@@ -627,7 +608,6 @@ local function background_scan_item(candidate, on_complete)
                 min_buyout = min_buyout,
                 total_count = total_count,
                 vendor_price = vendor_price,
-                historical_value = historical_value,
                 records = records,
                 scan_time = time(),
             }
@@ -696,7 +676,7 @@ end
 function M.import_candidates(import_list)
     local count = 0
     for _, item in import_list do
-        if add_candidate_by_id(item.id, item.type, item.profit) then
+        if add_candidate_by_id(item.id) then
             count = count + 1
         end
     end

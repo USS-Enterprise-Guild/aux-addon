@@ -35,7 +35,7 @@ function aux.handle.INIT_UI()
     do
         local label = gui.label(frame.candidates, gui.font_size.large)
         label:SetPoint('TOPLEFT', 10, -10)
-        label:SetText('Arbitrage Candidates')
+        label:SetText('Vendor Flip Candidates')
     end
 
     -- Add item input
@@ -84,8 +84,8 @@ function aux.handle.INIT_UI()
 
         candidate_listing = listing.new(f)
         candidate_listing:SetColInfo{
-            {name='Item', width=.55, align='LEFT'},
-            {name='Type', width=.25, align='CENTER'},
+            {name='Item', width=.60, align='LEFT'},
+            {name='Vendor', width=.20, align='RIGHT'},
             {name='', width=.20, align='CENTER'},
         }
         candidate_listing:SetSelection(function(data)
@@ -251,8 +251,8 @@ function update_candidate_listing()
         local status = '---'
 
         if result then
-            local profits = calculate_profit(result)
-            if profits and (profits.vendor or profits.market) then
+            local profit_info = calculate_profit(result)
+            if profit_info then
                 status = aux.color.green('PROFIT')
             elseif result.min_buyout then
                 status = 'scanned'
@@ -261,10 +261,18 @@ function update_candidate_listing()
             end
         end
 
+        -- Show vendor price from candidate or result
+        local vendor_str = '---'
+        if result and result.vendor_price and result.vendor_price > 0 then
+            vendor_str = money.to_string(result.vendor_price, true, true)
+        elseif candidate.vendor_price and candidate.vendor_price > 0 then
+            vendor_str = money.to_string(candidate.vendor_price, true, true)
+        end
+
         tinsert(rows, {
             cols = {
                 {value = candidate.item_name},
-                {value = candidate.opportunity_type},
+                {value = vendor_str},
                 {value = status},
             },
             candidate = candidate,
@@ -311,9 +319,9 @@ function update_result_display()
     local result = get_scan_result(candidate.item_id)
 
     if not result then
-        current_price_label:SetText('Current Price: Not scanned')
+        current_price_label:SetText('AH Price: Not scanned')
         vendor_price_label:SetText('Vendor Price: ---')
-        market_price_label:SetText('Market Price: ---')
+        market_price_label:SetText('')
         available_label:SetText('Available: ---')
         profit_label:SetText('Click "Scan" to check prices')
         auction_listing:SetData({})
@@ -322,38 +330,27 @@ function update_result_display()
 
     -- Update price labels
     if result.min_buyout then
-        current_price_label:SetText('Current Price: ' .. money.to_string(result.min_buyout, true))
+        current_price_label:SetText('AH Price: ' .. money.to_string(result.min_buyout, true))
     else
-        current_price_label:SetText('Current Price: None listed')
+        current_price_label:SetText('AH Price: None listed')
     end
 
     if result.vendor_price and result.vendor_price > 0 then
         vendor_price_label:SetText('Vendor Price: ' .. money.to_string(result.vendor_price, true))
     else
-        vendor_price_label:SetText('Vendor Price: None')
+        vendor_price_label:SetText('Vendor Price: Not vendorable')
     end
 
-    if result.historical_value and result.historical_value > 0 then
-        market_price_label:SetText('Market Price: ' .. money.to_string(result.historical_value, true))
-    else
-        market_price_label:SetText('Market Price: No history')
-    end
-
+    market_price_label:SetText('')  -- No longer used
     available_label:SetText('Available: ' .. result.total_count)
 
     -- Calculate and display profit
-    local profits = calculate_profit(result)
-    if profits then
-        local profit_text = ''
-        if profits.vendor then
-            profit_text = aux.color.green('VENDOR FLIP: +' .. money.to_string(profits.vendor.profit, true))
-        elseif profits.market then
-            profit_text = aux.color.green('MARKET FLIP: +' .. money.to_string(profits.market.profit, true) .. ' potential')
-        end
-        profit_label:SetText(profit_text)
+    local profit_info = calculate_profit(result)
+    if profit_info then
+        profit_label:SetText(aux.color.green('VENDOR FLIP: +' .. money.to_string(profit_info.profit, true)))
     else
         if result.min_buyout then
-            profit_label:SetText(aux.color.label.enabled('No profitable opportunities'))
+            profit_label:SetText(aux.color.label.enabled('No profit (AH >= vendor)'))
         else
             profit_label:SetText('')
         end

@@ -34,6 +34,20 @@ refresh = true
 -- Forward declare internal function (defined in background scanning section)
 local stop_background_scan
 
+-- Get vendor sell price for an item from cache or ShaguTweaks database
+local function get_vendor_price(item_id)
+    -- Try aux's cached merchant sell price first
+    local sell_price = info.merchant_info(item_id)
+    if sell_price and sell_price > 0 then
+        return sell_price
+    end
+    -- Fallback to ShaguTweaks database if available
+    if ShaguTweaks and ShaguTweaks.SellValueDB and ShaguTweaks.SellValueDB[item_id] then
+        return ShaguTweaks.SellValueDB[item_id]
+    end
+    return 0
+end
+
 function aux.handle.LOAD2()
     -- Load saved candidates from account data
     if aux.account_data.arbitrage_candidates then
@@ -215,7 +229,6 @@ function M.scan_candidate(candidate)
             -- Process results
             local min_buyout = nil
             local total_count = 0
-            local vendor_price = 0
             local buyable_records = T.acquire()
 
             for _, record in records do
@@ -225,10 +238,6 @@ function M.scan_candidate(candidate)
                     if not min_buyout or unit_price < min_buyout then
                         min_buyout = unit_price
                     end
-                    -- Get vendor price from first record's tooltip_money (per unit)
-                    if vendor_price == 0 and record.tooltip_money then
-                        vendor_price = record.tooltip_money / record.aux_quantity
-                    end
                     tinsert(buyable_records, record)
                 end
             end
@@ -237,6 +246,9 @@ function M.scan_candidate(candidate)
             sort(buyable_records, function(a, b)
                 return a.unit_buyout_price < b.unit_buyout_price
             end)
+
+            -- Get vendor price from cache
+            local vendor_price = get_vendor_price(item_id)
 
             scan_results[item_id] = {
                 item_id = item_id,
@@ -311,7 +323,6 @@ function M.scan_all_candidates()
                 -- Process results
                 local min_buyout = nil
                 local total_count = 0
-                local vendor_price = 0
                 local buyable_records = T.acquire()
 
                 for _, record in records do
@@ -321,10 +332,6 @@ function M.scan_all_candidates()
                         if not min_buyout or unit_price < min_buyout then
                             min_buyout = unit_price
                         end
-                        -- Get vendor price from first record's tooltip_money (per unit)
-                        if vendor_price == 0 and record.tooltip_money then
-                            vendor_price = record.tooltip_money / record.aux_quantity
-                        end
                         tinsert(buyable_records, record)
                     end
                 end
@@ -332,6 +339,9 @@ function M.scan_all_candidates()
                 sort(buyable_records, function(a, b)
                     return a.unit_buyout_price < b.unit_buyout_price
                 end)
+
+                -- Get vendor price from cache
+                local vendor_price = get_vendor_price(item_id)
 
                 scan_results[item_id] = {
                     item_id = item_id,
@@ -547,7 +557,6 @@ local function background_scan_item(candidate, on_complete)
     -- Lightweight record collection
     local min_buyout = nil
     local total_count = 0
-    local vendor_price = 0
     local top_records = {}  -- Only keep cheapest N records
     local query = scan_util.item_query(item_id)
 
@@ -565,11 +574,6 @@ local function background_scan_item(candidate, on_complete)
 
                 if not min_buyout or unit_price < min_buyout then
                     min_buyout = unit_price
-                end
-
-                -- Get vendor price from first record's tooltip_money (per unit)
-                if vendor_price == 0 and auction_record.tooltip_money then
-                    vendor_price = auction_record.tooltip_money / auction_record.aux_quantity
                 end
 
                 -- Only keep top N cheapest records for memory efficiency
@@ -598,6 +602,9 @@ local function background_scan_item(candidate, on_complete)
             if old_result and old_result.records then
                 T.release(old_result.records)
             end
+
+            -- Get vendor price from cache
+            local vendor_price = get_vendor_price(item_id)
 
             -- Convert to pooled table for records
             local records = T.acquire()

@@ -349,13 +349,19 @@ function M.execute(resume, real_time)
 	end
 
 	if resume then
-		current_search().table:SetSelectedRecord()
+		if current_search() then
+			current_search().table:SetSelectedRecord()
+		end
 	else
-		if filter_string ~= current_search().filter_string then
-			if current_search().filter_string then
+		local cur = current_search()
+		if not cur or filter_string ~= cur.filter_string then
+			if cur and cur.filter_string then
+				new_search(filter_string, first_page, last_page, real_time)
+			elseif not cur then
+				-- No search exists, create one
 				new_search(filter_string, first_page, last_page, real_time)
 			else
-				current_search().filter_string = filter_string
+				cur.filter_string = filter_string
 			end
 			new_recent_search(filter_string, aux.join(aux.map(aux.copy(queries), function(filter) return filter.prettified end), ';'))
 		else
@@ -370,16 +376,21 @@ function M.execute(resume, real_time)
 			search.table:SetDatabase(search.records)
 		end
 		local search = current_search()
-		search.first_page = first_page
-		search.last_page = last_page
-		search.real_time = real_time
-		search.auto_buy_validator = get_auto_buy_validator()
-		search.auto_bid_validator = get_auto_bid_validator()
+		if search then
+			search.first_page = first_page
+			search.last_page = last_page
+			search.real_time = real_time
+			search.auto_buy_validator = get_auto_buy_validator()
+			search.auto_bid_validator = get_auto_bid_validator()
+		end
 	end
 
-	local continuation = resume and current_search().continuation
+	local search = current_search()
+	if not search then return end
+
+	local continuation = resume and search.continuation
 	discard_continuation()
-	current_search().active = true
+	search.active = true
 	update_start_stop()
 	clear_control_focus()
 	set_subtab(RESULTS)
@@ -390,7 +401,6 @@ function M.execute(resume, real_time)
 		if item_id then
 			local cached_records = auction_cache.get(item_id)
 			if cached_records then
-				local search = current_search()
 				-- Copy cached records and apply validator
 				local validator = queries[1].validator
 				for _, record in cached_records do
@@ -425,8 +435,8 @@ function M.execute(resume, real_time)
 		start_real_time_scan(queries[1], nil, continuation)
 	else
 		for _, query in queries do
-			query.blizzard_query.first_page = current_search().first_page
-			query.blizzard_query.last_page = current_search().last_page
+			query.blizzard_query.first_page = search.first_page
+			query.blizzard_query.last_page = search.last_page
 		end
 		start_search(queries, continuation, cache_item_id)
 	end

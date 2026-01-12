@@ -34,7 +34,7 @@ refresh = true
 -- Forward declare internal function (defined in background scanning section)
 local stop_background_scan
 
--- Get vendor sell price for an item from cache or ShaguTweaks database
+-- Get vendor sell price for an item from cache, ShaguTweaks, or tooltip
 -- Matches logic from core/tooltip.lua
 local function get_vendor_price(item_id)
     -- Ensure item_id is a number (SavedVariables may store as string)
@@ -43,11 +43,22 @@ local function get_vendor_price(item_id)
 
     -- Try aux's cached merchant sell price first
     local price = info.merchant_info(item_id)
+
     -- Fallback to ShaguTweaks database if available
     if price == nil and ShaguTweaks and ShaguTweaks.SellValueDB and ShaguTweaks.SellValueDB[item_id] ~= nil then
         local charges = info.max_item_charges(item_id) or 1
         price = ShaguTweaks.SellValueDB[item_id] / charges
     end
+
+    -- Last resort: try getting from tooltip (works if item data is cached by client)
+    if not price or price == 0 then
+        local itemstring = 'item:' .. item_id .. ':0:0:0'
+        local _, tooltip_money = info.tooltip('link', itemstring)
+        if tooltip_money and tooltip_money > 0 then
+            price = tooltip_money
+        end
+    end
+
     return price or 0
 end
 

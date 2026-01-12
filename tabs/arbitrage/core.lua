@@ -330,8 +330,8 @@ function M.scan_all_candidates()
             end,
             on_abort = function()
                 T.release(records)
-                status_bar:update_status(1, 1)
-                status_bar:set_text('Scan aborted')
+                -- Continue to next item even if this one was aborted
+                scan_next()
             end,
             on_complete = function()
                 -- Process results

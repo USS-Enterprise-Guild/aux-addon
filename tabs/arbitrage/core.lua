@@ -6,6 +6,7 @@ local info = require 'aux.util.info'
 local money = require 'aux.util.money'
 local scan_util = require 'aux.util.scan'
 local scan = require 'aux.core.scan'
+local history = require 'aux.core.history'
 
 local tab = aux.tab 'Arbitrage'
 
@@ -43,6 +44,15 @@ refresh = true
 -- Forward declare internal functions (defined in background scanning section)
 local stop_background_scan
 local stop_full_ah_scan
+
+-- Get market value for an item from aux history
+local function get_market_value(item_id)
+    item_id = tonumber(item_id)
+    if not item_id then return nil end
+    -- item_key format is item_id:suffix_id, use 0 for non-random-suffix items
+    local item_key = item_id .. ':0'
+    return history.market_value(item_key)
+end
 
 -- Get vendor sell price for an item from cache, ShaguTweaks, or tooltip
 -- Matches logic from core/tooltip.lua
@@ -272,8 +282,9 @@ function M.scan_candidate(candidate)
                 return a.unit_buyout_price < b.unit_buyout_price
             end)
 
-            -- Get vendor price from cache
+            -- Get vendor and market prices
             local vendor_price = get_vendor_price(item_id)
+            local market_value = get_market_value(item_id)
 
             scan_results[item_id] = {
                 item_id = item_id,
@@ -281,6 +292,7 @@ function M.scan_candidate(candidate)
                 min_buyout = min_buyout,
                 total_count = total_count,
                 vendor_price = vendor_price,
+                market_value = market_value,
                 records = buyable_records,
                 scan_time = time(),
             }
@@ -365,8 +377,9 @@ function M.scan_all_candidates()
                     return a.unit_buyout_price < b.unit_buyout_price
                 end)
 
-                -- Get vendor price from cache
+                -- Get vendor and market prices
                 local vendor_price = get_vendor_price(item_id)
+                local market_value = get_market_value(item_id)
 
                 scan_results[item_id] = {
                     item_id = item_id,
@@ -374,6 +387,7 @@ function M.scan_all_candidates()
                     min_buyout = min_buyout,
                     total_count = total_count,
                     vendor_price = vendor_price,
+                    market_value = market_value,
                     records = buyable_records,
                     scan_time = time(),
                 }
@@ -631,8 +645,9 @@ local function background_scan_item(candidate, on_complete)
                 T.release(old_result.records)
             end
 
-            -- Get vendor price from cache
+            -- Get vendor and market prices
             local vendor_price = get_vendor_price(item_id)
+            local market_value = get_market_value(item_id)
 
             -- Convert to pooled table for records
             local records = T.acquire()
@@ -646,6 +661,7 @@ local function background_scan_item(candidate, on_complete)
                 min_buyout = min_buyout,
                 total_count = total_count,
                 vendor_price = vendor_price,
+                market_value = market_value,
                 records = records,
                 scan_time = time(),
             }
@@ -804,12 +820,14 @@ local function check_auction_for_arbitrage(auction_record)
             full_ah_scan_candidates_found = full_ah_scan_candidates_found + 1
 
             -- Store initial scan result for this item
+            local market_value = get_market_value(item_id)
             scan_results[item_id] = {
                 item_id = item_id,
                 item_name = item_info.name,
                 min_buyout = unit_buyout,
                 total_count = auction_record.aux_quantity,
                 vendor_price = vendor_price,
+                market_value = market_value,
                 records = T.list(auction_record),
                 scan_time = time(),
             }

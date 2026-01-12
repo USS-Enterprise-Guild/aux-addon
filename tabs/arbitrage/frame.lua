@@ -331,7 +331,7 @@ function update_result_display()
     if not result then
         current_price_label:SetText('AH Price: Not scanned')
         vendor_price_label:SetText('Vendor Price: ---')
-        market_price_label:SetText('')
+        market_price_label:SetText('Market Value: ---')
         available_label:SetText('Available: ---')
         profit_label:SetText('Click "Scan" to check prices')
         auction_listing:SetData({})
@@ -351,7 +351,11 @@ function update_result_display()
         vendor_price_label:SetText('Vendor Price: Not vendorable')
     end
 
-    market_price_label:SetText('')  -- No longer used
+    if result.market_value and result.market_value > 0 then
+        market_price_label:SetText('Market Value: ' .. money.to_string(result.market_value, true))
+    else
+        market_price_label:SetText('Market Value: Unknown')
+    end
     available_label:SetText('Available: ' .. result.total_count)
 
     -- Calculate and display profit

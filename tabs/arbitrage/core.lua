@@ -837,8 +837,15 @@ function M.start_full_ah_scan()
     status_bar:update_status(0, 0)
     status_bar:set_text('Scanning AH for arbitrage...')
 
-    -- Create a query with empty blizzard_query to scan all items
-    local query = T.map('blizzard_query', T.acquire())
+    -- Create query to scan all AH items - blizzard_query with nil values scans everything
+    local query = T.map(
+        'blizzard_query', T.map(
+            'name', nil,
+            'first_page', 0,
+            'last_page', nil  -- nil means scan all pages
+        ),
+        'validator', function() return true end  -- accept all items
+    )
 
     full_ah_scan_id = scan.start{
         type = 'list',

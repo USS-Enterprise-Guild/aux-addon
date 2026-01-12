@@ -199,10 +199,10 @@ function aux.handle.INIT_UI()
 
         auction_listing = listing.new(f)
         auction_listing:SetColInfo{
-            {name='Stack', width=.15, align='CENTER'},
-            {name='Unit Price', width=.35, align='RIGHT'},
-            {name='Total', width=.35, align='RIGHT'},
-            {name='Time', width=.15, align='CENTER'},
+            {name='Qty', width=.12, align='CENTER'},
+            {name='Buyout', width=.33, align='RIGHT'},
+            {name='Profit', width=.33, align='RIGHT'},
+            {name='Time', width=.22, align='CENTER'},
         }
         auction_listing:SetHandler('OnClick', function(table, row_data, column, button)
             -- Could add selection for specific auctions
@@ -360,20 +360,26 @@ function update_result_display()
         end
     end
 
-    -- Update auction listing
+    -- Update auction listing - only show profitable auctions
     local rows = {}
-    if result.records then
-        for i, record in result.records do
-            if i <= 10 then  -- Show top 10
-                tinsert(rows, {
-                    cols = {
-                        {value = record.aux_quantity},
-                        {value = money.to_string(record.unit_buyout_price, true)},
-                        {value = money.to_string(record.buyout_price, true)},
-                        {value = al.time_left(record.duration)},
-                    },
-                    record = record,
-                })
+    if result.records and result.vendor_price and result.vendor_price > 0 then
+        local count = 0
+        for _, record in result.records do
+            -- Only show auctions where we can profit
+            if record.unit_buyout_price < result.vendor_price then
+                count = count + 1
+                if count <= 10 then  -- Show top 10 profitable
+                    local profit = result.vendor_price - record.unit_buyout_price
+                    tinsert(rows, {
+                        cols = {
+                            {value = record.aux_quantity},
+                            {value = money.to_string(record.unit_buyout_price, true)},
+                            {value = aux.color.green('+' .. money.to_string(profit, true, true))},
+                            {value = al.time_left(record.duration)},
+                        },
+                        record = record,
+                    })
+                end
             end
         end
     end

@@ -404,21 +404,40 @@ function M.scan_all_candidates()
     scan_next()
 end
 
--- Calculate vendor flip profit for a scan result
+-- Calculate profit for a scan result (vendor flip or market flip)
 function M.calculate_profit(result)
     if not result or not result.min_buyout then
         return nil
     end
 
-    -- Vendor profit only - guaranteed profit
+    local profit_info = nil
+
+    -- Vendor profit - guaranteed profit
     if result.vendor_price and result.vendor_price > result.min_buyout then
-        return {
+        profit_info = {
             profit = result.vendor_price - result.min_buyout,
-            vendor_price = result.vendor_price,
+            flip_type = 'vendor',
+            target_price = result.vendor_price,
         }
     end
 
-    return nil
+    -- Market profit - potential profit (buy below 80% of market value)
+    if result.market_value and result.market_value > 0 then
+        local market_threshold = result.market_value * 0.8
+        if result.min_buyout < market_threshold then
+            local market_profit = result.market_value - result.min_buyout
+            -- Use market flip if no vendor flip, or if market profit is higher
+            if not profit_info or market_profit > profit_info.profit then
+                profit_info = {
+                    profit = market_profit,
+                    flip_type = 'market',
+                    target_price = result.market_value,
+                }
+            end
+        end
+    end
+
+    return profit_info
 end
 
 -- Find cheapest auction for buying
@@ -801,13 +820,20 @@ local function check_auction_for_arbitrage(auction_record)
         end
     end
 
-    -- Get vendor price
+    -- Get vendor and market prices
     local vendor_price = get_vendor_price(item_id)
-    if not vendor_price or vendor_price == 0 then return end
+    local market_value = get_market_value(item_id)
 
-    -- Check if this is a vendor flip opportunity
+    -- Need at least one price source
+    if (not vendor_price or vendor_price == 0) and (not market_value or market_value == 0) then
+        return
+    end
+
     local unit_buyout = auction_record.unit_buyout_price
-    if unit_buyout < vendor_price then
+    local is_vendor_flip = vendor_price and vendor_price > 0 and unit_buyout < vendor_price
+    local is_market_flip = market_value and market_value > 0 and unit_buyout < (market_value * 0.8)  -- 20% below market
+
+    if is_vendor_flip or is_market_flip then
         -- Found a profitable item! Add to candidates
         local item_info = info.item(item_id)
         if item_info then
@@ -820,13 +846,12 @@ local function check_auction_for_arbitrage(auction_record)
             full_ah_scan_candidates_found = full_ah_scan_candidates_found + 1
 
             -- Store initial scan result for this item
-            local market_value = get_market_value(item_id)
             scan_results[item_id] = {
                 item_id = item_id,
                 item_name = item_info.name,
                 min_buyout = unit_buyout,
                 total_count = auction_record.aux_quantity,
-                vendor_price = vendor_price,
+                vendor_price = vendor_price or 0,
                 market_value = market_value,
                 records = T.list(auction_record),
                 scan_time = time(),

@@ -254,7 +254,8 @@ function update_candidate_listing()
         if result then
             local profit_info = calculate_profit(result)
             if profit_info then
-                status = aux.color.green('+' .. money.to_string(profit_info.profit, true, true))
+                local prefix = profit_info.flip_type == 'vendor' and 'V ' or 'M '
+                status = aux.color.green(prefix .. '+' .. money.to_string(profit_info.profit, true, true))
                 profit = profit_info.profit
             elseif result.min_buyout then
                 -- Scanned but not profitable
@@ -361,30 +362,48 @@ function update_result_display()
     -- Calculate and display profit
     local profit_info = calculate_profit(result)
     if profit_info then
-        profit_label:SetText(aux.color.green('VENDOR FLIP: +' .. money.to_string(profit_info.profit, true)))
+        if profit_info.flip_type == 'vendor' then
+            profit_label:SetText(aux.color.green('VENDOR FLIP: +' .. money.to_string(profit_info.profit, true)))
+        else
+            profit_label:SetText(aux.color.green('MARKET FLIP: +' .. money.to_string(profit_info.profit, true) .. ' (potential)'))
+        end
     else
         if result.min_buyout then
-            profit_label:SetText(aux.color.label.enabled('No profit (AH >= vendor)'))
+            profit_label:SetText(aux.color.label.enabled('No profit opportunity'))
         else
             profit_label:SetText('')
         end
     end
 
-    -- Update auction listing - only show profitable auctions
+    -- Update auction listing - show profitable auctions (vendor or market flip)
     local rows = {}
-    if result.records and result.vendor_price and result.vendor_price > 0 then
+    if result.records then
+        local vendor_price = result.vendor_price or 0
+        local market_value = result.market_value or 0
+        local market_threshold = market_value * 0.8
+
         local count = 0
         for _, record in result.records do
-            -- Only show auctions where we can profit
-            if record.unit_buyout_price < result.vendor_price then
+            local unit_price = record.unit_buyout_price
+            local is_vendor_profit = vendor_price > 0 and unit_price < vendor_price
+            local is_market_profit = market_value > 0 and unit_price < market_threshold
+
+            if is_vendor_profit or is_market_profit then
                 count = count + 1
                 if count <= 10 then  -- Show top 10 profitable
-                    local profit = result.vendor_price - record.unit_buyout_price
+                    local profit, prefix
+                    if is_vendor_profit then
+                        profit = vendor_price - unit_price
+                        prefix = 'V '
+                    else
+                        profit = market_value - unit_price
+                        prefix = 'M '
+                    end
                     tinsert(rows, {
                         cols = {
                             {value = record.aux_quantity},
-                            {value = money.to_string(record.unit_buyout_price, true)},
-                            {value = aux.color.green('+' .. money.to_string(profit, true, true))},
+                            {value = money.to_string(unit_price, true)},
+                            {value = aux.color.green(prefix .. '+' .. money.to_string(profit, true, true))},
                             {value = al.time_left(record.duration)},
                         },
                         record = record,

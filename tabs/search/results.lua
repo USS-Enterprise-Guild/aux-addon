@@ -450,6 +450,7 @@ do
 
 	function find_auction(record)
 		local search = current_search()
+		if not search then return end
 
 		if not search.table:ContainsRecord(record) or info.is_player(record.owner) then
 			return

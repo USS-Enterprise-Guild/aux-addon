@@ -22,7 +22,13 @@ local buy_scan_id = 0
 local found_auction_record = nil
 local found_auction_index = nil
 
--- Background scanning state
+-- Scan All state (allows pause/resume for manual scans)
+local scan_all_active = false
+local scan_all_index = 0
+local scan_all_total = 0
+local scan_all_paused_for_manual = false
+
+-- Background scanning state (legacy, for periodic refresh)
 local bg_scan_enabled = false
 local bg_scan_index = 0
 local bg_scan_interval = 2  -- seconds between each item scan
@@ -32,6 +38,7 @@ local MAX_STORED_RECORDS = 5  -- limit records per item for memory
 
 -- Full AH scan state (discovers new candidates)
 local full_ah_scan_enabled = false
+local full_ah_paused_for_manual = false
 local full_ah_scan_id = 0
 local full_ah_scan_page = 0
 local full_ah_scan_total_pages = 0
@@ -98,6 +105,8 @@ function tab.CLOSE()
     frame:Hide()
     stop_background_scan()
     stop_full_ah_scan()
+    scan_all_active = false
+    scan_all_paused_for_manual = false
     scan.abort(scan_id)
     scan.abort(buy_scan_id)
     buy_state = IDLE
@@ -229,13 +238,42 @@ function M.get_scan_result(item_id)
     return scan_results[item_id]
 end
 
--- Scan a single candidate
+-- Resume any paused background scan
+local function resume_background_scans()
+    if scan_all_paused_for_manual then
+        scan_all_paused_for_manual = false
+        -- Resume scan_all from where we left off
+        if scan_all_active and scan_all_index <= scan_all_total then
+            aux.print(format('Resuming Scan All (%d/%d)...', scan_all_index, scan_all_total))
+            resume_scan_all()
+        end
+    elseif full_ah_paused_for_manual then
+        full_ah_paused_for_manual = false
+        -- Resume full AH scan
+        if full_ah_scan_enabled then
+            aux.print('Resuming full AH scan...')
+            start_full_ah_scan_internal()
+        end
+    end
+end
+
+-- Scan a single candidate (can interrupt background scans)
 function M.scan_candidate(candidate)
     if not candidate then return end
 
     local item_id = candidate.item_id
 
-    scan.abort(scan_id)
+    -- Pause any running background scan
+    if scan_all_active and not scan_all_paused_for_manual then
+        scan_all_paused_for_manual = true
+        scan.abort(scan_id)
+    elseif full_ah_scan_enabled and not full_ah_paused_for_manual then
+        full_ah_paused_for_manual = true
+        scan.abort(full_ah_scan_id)
+    else
+        scan.abort(scan_id)
+    end
+
     status_bar:update_status(0, 0)
     status_bar:set_text('Scanning ' .. candidate.item_name .. '...')
 
@@ -259,6 +297,7 @@ function M.scan_candidate(candidate)
             T.release(records)
             status_bar:update_status(1, 1)
             status_bar:set_text('Scan aborted')
+            -- Don't resume if manually aborted
         end,
         on_complete = function()
             -- Process results
@@ -309,99 +348,142 @@ function M.scan_candidate(candidate)
             end
 
             refresh = true
+
+            -- Resume any paused background scan
+            resume_background_scans()
         end,
     }
 end
 
--- Scan all candidates
+-- Internal function to scan next candidate in Scan All
+local function scan_next_candidate()
+    if not scan_all_active then return end
+    if scan_all_paused_for_manual then return end
+
+    scan_all_index = scan_all_index + 1
+    if scan_all_index > scan_all_total then
+        scan_all_active = false
+        status_bar:update_status(1, 1)
+        status_bar:set_text('Scan complete: ' .. scan_all_total .. ' items')
+        refresh = true
+        return
+    end
+
+    local candidate = candidates[scan_all_index]
+    if not candidate then
+        scan_all_active = false
+        return
+    end
+
+    status_bar:update_status((scan_all_index - 1) / scan_all_total, 0)
+    status_bar:set_text(format('[Scan All %d/%d] %s', scan_all_index, scan_all_total, candidate.item_name))
+
+    local item_id = candidate.item_id
+    local records = T.acquire()
+    local query = scan_util.item_query(item_id)
+
+    scan_id = scan.start{
+        type = 'list',
+        ignore_owner = true,
+        queries = T.list(query),
+        on_auction = function(auction_record)
+            if auction_record.item_id == item_id then
+                tinsert(records, auction_record)
+            end
+        end,
+        on_abort = function()
+            T.release(records)
+            -- Don't auto-continue on abort - might be paused for manual scan
+            if not scan_all_paused_for_manual then
+                scan_next_candidate()
+            end
+        end,
+        on_complete = function()
+            -- Process results
+            local min_buyout = nil
+            local total_count = 0
+            local buyable_records = T.acquire()
+
+            for _, record in records do
+                if record.buyout_price > 0 and not info.is_player(record.owner) then
+                    total_count = total_count + record.aux_quantity
+                    local unit_price = record.unit_buyout_price
+                    if not min_buyout or unit_price < min_buyout then
+                        min_buyout = unit_price
+                    end
+                    tinsert(buyable_records, record)
+                end
+            end
+
+            sort(buyable_records, function(a, b)
+                return a.unit_buyout_price < b.unit_buyout_price
+            end)
+
+            -- Get vendor and market prices
+            local vendor_price = get_vendor_price(item_id)
+            local market_value = get_market_value(item_id)
+
+            scan_results[item_id] = {
+                item_id = item_id,
+                item_name = candidate.item_name,
+                min_buyout = min_buyout,
+                total_count = total_count,
+                vendor_price = vendor_price,
+                market_value = market_value,
+                records = buyable_records,
+                scan_time = time(),
+            }
+
+            T.release(records)
+            refresh = true
+
+            -- Continue to next
+            scan_next_candidate()
+        end,
+    }
+end
+
+-- Resume Scan All from current index
+function resume_scan_all()
+    if scan_all_active and not scan_all_paused_for_manual then
+        scan_next_candidate()
+    end
+end
+
+-- Scan all candidates (can be paused for manual scans)
 function M.scan_all_candidates()
     if getn(candidates) == 0 then
         aux.print('No candidates to scan')
         return
     end
 
+    -- Stop any existing scan all
+    scan_all_active = false
+    scan_all_paused_for_manual = false
     scan.abort(scan_id)
 
-    local index = 0
-    local total = getn(candidates)
+    -- Initialize state
+    scan_all_active = true
+    scan_all_index = 0
+    scan_all_total = getn(candidates)
 
-    local function scan_next()
-        index = index + 1
-        if index > total then
-            status_bar:update_status(1, 1)
-            status_bar:set_text('Scan complete: ' .. total .. ' items')
-            refresh = true
-            return
-        end
+    -- Start scanning
+    scan_next_candidate()
+end
 
-        local candidate = candidates[index]
-        status_bar:update_status((index - 1) / total, 0)
-        status_bar:set_text(format('Scanning %d/%d: %s', index, total, candidate.item_name))
-
-        local item_id = candidate.item_id
-        local records = T.acquire()
-        local query = scan_util.item_query(item_id)
-
-        scan_id = scan.start{
-            type = 'list',
-            ignore_owner = true,
-            queries = T.list(query),
-            on_auction = function(auction_record)
-                if auction_record.item_id == item_id then
-                    tinsert(records, auction_record)
-                end
-            end,
-            on_abort = function()
-                T.release(records)
-                -- Continue to next item even if this one was aborted
-                scan_next()
-            end,
-            on_complete = function()
-                -- Process results
-                local min_buyout = nil
-                local total_count = 0
-                local buyable_records = T.acquire()
-
-                for _, record in records do
-                    if record.buyout_price > 0 and not info.is_player(record.owner) then
-                        total_count = total_count + record.aux_quantity
-                        local unit_price = record.unit_buyout_price
-                        if not min_buyout or unit_price < min_buyout then
-                            min_buyout = unit_price
-                        end
-                        tinsert(buyable_records, record)
-                    end
-                end
-
-                sort(buyable_records, function(a, b)
-                    return a.unit_buyout_price < b.unit_buyout_price
-                end)
-
-                -- Get vendor and market prices
-                local vendor_price = get_vendor_price(item_id)
-                local market_value = get_market_value(item_id)
-
-                scan_results[item_id] = {
-                    item_id = item_id,
-                    item_name = candidate.item_name,
-                    min_buyout = min_buyout,
-                    total_count = total_count,
-                    vendor_price = vendor_price,
-                    market_value = market_value,
-                    records = buyable_records,
-                    scan_time = time(),
-                }
-
-                T.release(records)
-                refresh = true
-
-                -- Continue to next
-                scan_next()
-            end,
-        }
+-- Stop Scan All
+function M.stop_scan_all()
+    if scan_all_active then
+        scan_all_active = false
+        scan_all_paused_for_manual = false
+        scan.abort(scan_id)
+        status_bar:set_text('Scan All stopped')
     end
+end
 
-    scan_next()
+-- Check if Scan All is running
+function M.is_scan_all_active()
+    return scan_all_active
 end
 
 -- Calculate profit for a scan result (vendor flip or market flip)
@@ -862,11 +944,68 @@ local function check_auction_for_arbitrage(auction_record)
     end
 end
 
+-- Internal function to start/resume full AH scan (keeps items_seen state)
+function start_full_ah_scan_internal()
+    if not full_ah_scan_enabled then return end
+
+    aux.print(format('Continuing full AH scan from page %d...', full_ah_scan_page + 1))
+    status_bar:update_status(full_ah_scan_page / max(1, full_ah_scan_total_pages), 0)
+    status_bar:set_text(format('Resuming AH scan from page %d...', full_ah_scan_page + 1))
+
+    -- Create query starting from current page
+    local query = T.map(
+        'blizzard_query', T.map(
+            'name', nil,
+            'first_page', full_ah_scan_page,
+            'last_page', nil
+        ),
+        'validator', function() return true end
+    )
+
+    full_ah_scan_id = scan.start{
+        type = 'list',
+        ignore_owner = true,
+        queries = T.list(query),
+        on_page_loaded = function(page, total_pages)
+            full_ah_scan_page = page
+            full_ah_scan_total_pages = total_pages
+            status_bar:update_status(page / max(1, total_pages), 0)
+            status_bar:set_text(format('Scanning AH: Page %d/%d (%d found)',
+                page + 1, total_pages, full_ah_scan_candidates_found))
+            refresh = true
+        end,
+        on_auction = function(auction_record)
+            check_auction_for_arbitrage(auction_record)
+        end,
+        on_abort = function()
+            if not full_ah_paused_for_manual then
+                full_ah_scan_enabled = false
+                full_ah_scan_id = 0
+                status_bar:update_status(1, 1)
+                status_bar:set_text('Scan aborted')
+            end
+            refresh = true
+        end,
+        on_complete = function()
+            full_ah_scan_enabled = false
+            full_ah_paused_for_manual = false
+            full_ah_scan_id = 0
+            status_bar:update_status(1, 1)
+            status_bar:set_text(format('Complete: %d candidates from %d items',
+                full_ah_scan_candidates_found, full_ah_scan_auctions_checked))
+            aux.print(format('Full AH scan complete! Found %d vendor flip candidates from %d unique items.',
+                full_ah_scan_candidates_found, full_ah_scan_auctions_checked))
+            refresh = true
+        end,
+    }
+end
+
 function M.start_full_ah_scan()
     -- Stop any existing scans
     stop_background_scan()
     stop_full_ah_scan()
     scan.abort(scan_id)
+    scan_all_active = false
 
     full_ah_scan_enabled = true
     full_ah_scan_page = 0
@@ -906,14 +1045,18 @@ function M.start_full_ah_scan()
             check_auction_for_arbitrage(auction_record)
         end,
         on_abort = function()
-            full_ah_scan_enabled = false
-            full_ah_scan_id = 0
-            status_bar:update_status(1, 1)
-            status_bar:set_text('Scan aborted')
+            -- Only clear state if not paused for manual scan
+            if not full_ah_paused_for_manual then
+                full_ah_scan_enabled = false
+                full_ah_scan_id = 0
+                status_bar:update_status(1, 1)
+                status_bar:set_text('Scan aborted')
+            end
             refresh = true
         end,
         on_complete = function()
             full_ah_scan_enabled = false
+            full_ah_paused_for_manual = false
             full_ah_scan_id = 0
             status_bar:update_status(1, 1)
             status_bar:set_text(format('Complete: %d candidates from %d items',

@@ -610,8 +610,8 @@ function on_update()
     -- Process background scanning (but not during full AH scan)
     process_background_scan()
 
-    -- Don't process buying during full AH scan
-    if full_ah_scan_enabled then return end
+    -- Don't process buying during background scans (they conflict as both use 'list' type)
+    if full_ah_scan_enabled or scan_all_active then return end
 
     -- Handle buying state
     if buy_state == IDLE or buy_state == SEARCHING then

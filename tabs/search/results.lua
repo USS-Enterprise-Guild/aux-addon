@@ -60,8 +60,11 @@ do
 	end
 
 	function update_search(index)
-		searches[search_index].status_bar:Hide()
-		searches[search_index].table:Hide()
+		-- Hide all search UI elements first to prevent overlap
+		for _, search in searches do
+			search.status_bar:Hide()
+			search.table:Hide()
+		end
 		searches[search_index].table:SetSelectedRecord()
 
 		search_index = index

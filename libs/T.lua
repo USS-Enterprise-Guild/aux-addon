@@ -11,6 +11,7 @@ function wipe(t)
 		t[k] = nil
 	end
 	t.reset, t.reset = nil, 1
+	t.reset = nil
 	setn(t, 0)
 end
 M.wipe = wipe

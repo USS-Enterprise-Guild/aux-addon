@@ -85,6 +85,15 @@ end
 
 function M.values(t)
 	local values = T.acquire()
+	-- DEBUG: Check if acquired table has stale keys
+	local stale = next(values)
+	if stale then
+		aux.print(format('|cffff0000[aux.values BUG] acquired table has stale key: %s = %s|r', tostring(stale), tostring(values[stale])))
+		-- Clean it
+		for k in values do
+			values[k] = nil
+		end
+	end
 	for _, v in t do
 		tinsert(values, v)
 	end

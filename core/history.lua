@@ -127,12 +127,18 @@ function M.value(item_key)
 			for _, data_point in item_record.data_points do
 				local weight = .99 ^ aux.round((item_record.data_points[1].time - data_point.time) / (60 * 60 * 24))
 				total_weight = total_weight + weight
-				tinsert(weighted_values, T.map('value', data_point.value, 'weight', weight))
+				local wv = T.map('value', data_point.value, 'weight', weight)
+				wv._history_weighted_value = true  -- DEBUG: Tag for tracing
+				tinsert(weighted_values, wv)
 			end
 			for _, weighted_value in weighted_values do
 				weighted_value.weight = weighted_value.weight / total_weight
 			end
 			value = weighted_median(weighted_values)
+			-- DEBUG: Release inner tables to prevent memory leak AND track if they escape
+			for _, wv in weighted_values do
+				T.release(wv)
+			end
 		else
 			value = item_record.daily_min_buyout
 		end

@@ -659,6 +659,10 @@ local methods = {
                 tinsert(dominated_keys, k)
             end
         end
+        -- Check if this is a history weighted_value table
+        if records._history_weighted_value then
+            aux.print('|cffff0000[BUG] records IS a history weighted_value table! This should never happen.|r')
+        end
         -- Remove bad entries to prevent crash
         for _, k in dominated_keys do
             records[k] = nil

@@ -651,6 +651,22 @@ local methods = {
 
 	    local records = self.records
 
+        -- DEBUG: Check for corrupted records
+        local dominated_keys = {}
+        for k, v in records do
+            if type(v) ~= 'table' then
+                aux.print(format('|cffff0000[BUG] records[%s] = %s (type: %s)|r', tostring(k), tostring(v), type(v)))
+                tinsert(dominated_keys, k)
+            end
+        end
+        -- Remove bad entries to prevent crash
+        for _, k in dominated_keys do
+            records[k] = nil
+        end
+        if getn(dominated_keys) > 0 then
+            aux.print(format('|cffff0000[BUG] Removed %d bad entries from records. Total records: %d|r', getn(dominated_keys), getn(records)))
+        end
+
 	    local single_item = aux.all(records, function(record) return record.item_key == records[1].item_key end)
 
         sort(records, function(a, b) return a.search_signature < b.search_signature or a.search_signature == b.search_signature and tostring(a) < tostring(b) end)

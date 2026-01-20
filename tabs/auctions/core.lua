@@ -37,7 +37,12 @@ function M.scan_auctions()
             status_bar:set_text(format('Scanning (Page %d / %d)', page, total_pages))
         end,
         on_auction = function(auction_record)
-            tinsert(auction_records, auction_record)
+            -- DEBUG: Validate auction_record before inserting
+            if type(auction_record) ~= 'table' then
+                aux.print(format('|cffff0000[AUCTIONS BUG] on_auction received non-table: %s (type: %s)|r', tostring(auction_record), type(auction_record)))
+            else
+                tinsert(auction_records, auction_record)
+            end
         end,
         on_complete = function()
             status_bar:update_status(1, 1)

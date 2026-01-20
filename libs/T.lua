@@ -13,20 +13,38 @@ function wipe(t)
 	t.reset, t.reset = nil, 1
 	t.reset = nil
 	setn(t, 0)
+	-- DEBUG: Verify wipe worked
+	local leftover = next(t)
+	if leftover then
+		DEFAULT_CHAT_FRAME:AddMessage(format('|cffff0000[T.wipe BUG] Table still has key after wipe: %s = %s|r', tostring(leftover), tostring(t[leftover])))
+	end
 end
 M.wipe = wipe
 
 function acquire()
+	local t
 	if pool_size > 0 then
 		pool_size = pool_size - 1
-		return pool[pool_size + 1]
+		t = pool[pool_size + 1]
+	else
+		t = next(overflow_pool)
+		if t then
+			overflow_pool[t] = nil
+		else
+			return {}
+		end
 	end
-	local t = next(overflow_pool)
-	if t then
-		overflow_pool[t] = nil
-		return t
+	-- DEBUG: Verify acquired table is clean
+	local leftover = next(t)
+	if leftover then
+		DEFAULT_CHAT_FRAME:AddMessage(format('|cffff0000[T.acquire BUG] Pooled table has stale key: %s = %s|r', tostring(leftover), tostring(t[leftover])))
+		-- Clean it before returning
+		for k in t do
+			t[k] = nil
+		end
+		setn(t, 0)
 	end
-	return {}
+	return t
 end
 M.acquire = acquire
 

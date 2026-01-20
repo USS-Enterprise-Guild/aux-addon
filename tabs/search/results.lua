@@ -193,16 +193,29 @@ function start_real_time_scan(query, search, continuation)
 		end,
 		on_auction = function(auction_record)
 			if not ignore_page then
-				tinsert(new_records, auction_record)
+				-- DEBUG: Validate auction_record before inserting
+				if type(auction_record) ~= 'table' then
+					aux.print(format('|cffff0000[RT SCAN BUG] on_auction received non-table: %s (type: %s)|r', tostring(auction_record), type(auction_record)))
+				else
+					tinsert(new_records, auction_record)
+				end
 			end
 		end,
 		on_complete = function()
 			local map = T.temp-T.acquire()
-			for _, record in search.records do
-				map[record.sniping_signature] = record
+			for k, record in search.records do
+				if type(record) ~= 'table' then
+					aux.print(format('|cffff0000[RT BUG] search.records[%s] = %s (type: %s)|r', tostring(k), tostring(record), type(record)))
+				else
+					map[record.sniping_signature] = record
+				end
 			end
-			for _, record in new_records do
-				map[record.sniping_signature] = record
+			for k, record in new_records do
+				if type(record) ~= 'table' then
+					aux.print(format('|cffff0000[RT BUG] new_records[%s] = %s (type: %s)|r', tostring(k), tostring(record), type(record)))
+				else
+					map[record.sniping_signature] = record
+				end
 			end
 			T.release(new_records)
 			new_records = aux.values(map)
@@ -283,9 +296,14 @@ function start_search(queries, continuation, cache_item_id)
 		end,
 		on_auction = function(auction_record, ctrl)
 			if getn(search.records) < 2000 then
-				tinsert(search.records, auction_record)
-				if getn(search.records) == 2000 then
-					StaticPopup_Show('AUX_SEARCH_TABLE_FULL')
+				-- DEBUG: Validate auction_record before inserting
+				if type(auction_record) ~= 'table' then
+					aux.print(format('|cffff0000[SCAN BUG] on_auction received non-table: %s (type: %s)|r', tostring(auction_record), type(auction_record)))
+				else
+					tinsert(search.records, auction_record)
+					if getn(search.records) == 2000 then
+						StaticPopup_Show('AUX_SEARCH_TABLE_FULL')
+					end
 				end
 			end
 		end,
@@ -406,13 +424,16 @@ function M.execute(resume, real_time)
 			if cached_records then
 				-- Copy cached records and apply validator
 				local validator = queries[1].validator
-				for _, record in cached_records do
-					if not validator or validator(record) then
+				for k, record in cached_records do
+					-- DEBUG: Validate record from cache
+					if type(record) ~= 'table' then
+						aux.print(format('|cffff0000[CACHE LOAD BUG] cached_records[%s] = %s (type: %s)|r', tostring(k), tostring(record), type(record)))
+					elseif not validator or validator(record) then
 						if getn(search.records) < 2000 then
 							-- Deep copy the record
 							local copy = T.acquire()
-							for k, v in record do
-								copy[k] = v
+							for ck, cv in record do
+								copy[ck] = cv
 							end
 							tinsert(search.records, copy)
 						end

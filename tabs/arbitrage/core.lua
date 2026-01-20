@@ -289,7 +289,10 @@ function M.scan_candidate(candidate)
             status_bar:set_text(format('Scanning %s: Page %d / %d', candidate.item_name, page, total_pages))
         end,
         on_auction = function(auction_record)
-            if auction_record.item_id == item_id then
+            -- DEBUG: Validate auction_record
+            if type(auction_record) ~= 'table' then
+                aux.print(format('|cffff0000[ARB BUG] scan_candidate received non-table: %s (type: %s)|r', tostring(auction_record), type(auction_record)))
+            elseif auction_record.item_id == item_id then
                 tinsert(records, auction_record)
             end
         end,
@@ -387,7 +390,10 @@ local function scan_next_candidate()
         ignore_owner = true,
         queries = T.list(query),
         on_auction = function(auction_record)
-            if auction_record.item_id == item_id then
+            -- DEBUG: Validate auction_record
+            if type(auction_record) ~= 'table' then
+                aux.print(format('|cffff0000[ARB BUG] scan_next received non-table: %s (type: %s)|r', tostring(auction_record), type(auction_record)))
+            elseif auction_record.item_id == item_id then
                 tinsert(records, auction_record)
             end
         end,
@@ -708,6 +714,11 @@ local function background_scan_item(candidate, on_complete)
         ignore_owner = true,
         queries = T.list(query),
         on_auction = function(auction_record)
+            -- DEBUG: Validate auction_record
+            if type(auction_record) ~= 'table' then
+                aux.print(format('|cffff0000[ARB BUG] bg_scan received non-table: %s (type: %s)|r', tostring(auction_record), type(auction_record)))
+                return
+            end
             if auction_record.item_id == item_id and
                auction_record.buyout_price > 0 and
                not info.is_player(auction_record.owner) then
@@ -975,7 +986,12 @@ function start_full_ah_scan_internal()
             refresh = true
         end,
         on_auction = function(auction_record)
-            check_auction_for_arbitrage(auction_record)
+            -- DEBUG: Validate auction_record
+            if type(auction_record) ~= 'table' then
+                aux.print(format('|cffff0000[ARB BUG] full_ah_internal received non-table: %s (type: %s)|r', tostring(auction_record), type(auction_record)))
+            else
+                check_auction_for_arbitrage(auction_record)
+            end
         end,
         on_abort = function()
             if not full_ah_paused_for_manual then
@@ -1042,7 +1058,12 @@ function M.start_full_ah_scan()
             refresh = true
         end,
         on_auction = function(auction_record)
-            check_auction_for_arbitrage(auction_record)
+            -- DEBUG: Validate auction_record
+            if type(auction_record) ~= 'table' then
+                aux.print(format('|cffff0000[ARB BUG] full_ah_start received non-table: %s (type: %s)|r', tostring(auction_record), type(auction_record)))
+            else
+                check_auction_for_arbitrage(auction_record)
+            end
         end,
         on_abort = function()
             -- Only clear state if not paused for manual scan

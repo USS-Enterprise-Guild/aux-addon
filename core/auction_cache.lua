@@ -16,21 +16,38 @@ end
 function M.get(item_id)
 	local entry = cache[item_id]
 	if entry and GetTime() - entry.timestamp < CACHE_EXPIRY then
+		-- DEBUG: Validate cached records before returning
+		for k, v in entry.records do
+			if type(v) ~= 'table' then
+				aux.print(format('|cffff0000[CACHE BUG] get(%s): records[%s] = %s (type: %s)|r', tostring(item_id), tostring(k), tostring(v), type(v)))
+			end
+		end
 		return entry.records
 	end
 	return nil
 end
 
 function M.set(item_id, records)
+	-- DEBUG: Validate input records
+	for k, v in records do
+		if type(v) ~= 'table' then
+			aux.print(format('|cffff0000[CACHE BUG] set(%s): input records[%s] = %s (type: %s)|r', tostring(item_id), tostring(k), tostring(v), type(v)))
+		end
+	end
+
 	-- Deep copy the records so the cache has its own copy
 	local cached_records = T.acquire()
 	for _, record in records do
-		-- Copy the record so modifications don't affect the cache
-		local copy = T.acquire()
-		for k, v in record do
-			copy[k] = v
+		if type(record) ~= 'table' then
+			aux.print(format('|cffff0000[CACHE BUG] set(%s): skipping non-table record: %s|r', tostring(item_id), tostring(record)))
+		else
+			-- Copy the record so modifications don't affect the cache
+			local copy = T.acquire()
+			for k, v in record do
+				copy[k] = v
+			end
+			tinsert(cached_records, copy)
 		end
-		tinsert(cached_records, copy)
 	end
 
 	-- Release old cache entry if exists

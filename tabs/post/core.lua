@@ -648,7 +648,10 @@ function refresh_entries()
                 status_bar:set_text(format('Scanning Page %d / %d', page, total_pages))
 			end,
 			on_auction = function(auction_record)
-				if auction_record.item_key == item_key then
+                -- DEBUG: Validate auction_record
+                if type(auction_record) ~= 'table' then
+                    aux.print(format('|cffff0000[POST BUG] on_auction received non-table: %s (type: %s)|r', tostring(auction_record), type(auction_record)))
+                elseif auction_record.item_key == item_key then
                     -- Store raw record for shared cache and buying
                     tinsert(raw_records, auction_record)
                     record_auction(

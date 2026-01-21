@@ -663,6 +663,15 @@ local methods = {
         if records._history_weighted_value then
             aux.print('|cffff0000[BUG] records IS a history weighted_value table! This should never happen.|r')
         end
+        -- Check if this looks like a filter component (first value is "blizzard")
+        if records[1] == 'blizzard' then
+            aux.print('|cffff0000[BUG] records IS a filter component! {"blizzard", ...}|r')
+            aux.print(format('|cffff0000[BUG] Filter component values: [1]=%s [2]=%s [3]=%s [4]=%s|r',
+                tostring(records[1]), tostring(records[2]), tostring(records[3]), tostring(records[4])))
+            -- Print stack trace to find caller
+            aux.print('|cffff0000[BUG] Stack trace:|r')
+            aux.print(debugstack(1, 5, 0))
+        end
         -- Remove bad entries to prevent crash
         for _, k in dominated_keys do
             records[k] = nil
@@ -841,6 +850,14 @@ local methods = {
     end,
 
     Reset = function(self)
+        -- DEBUG: Check if records is already corrupted before Reset
+        if self.records and self.records[1] == 'blizzard' then
+            aux.print('|cffff0000[Reset BUG] self.records IS a filter component BEFORE Reset!|r')
+            aux.print(format('|cffff0000[Reset BUG] Filter values: [1]=%s [2]=%s [3]=%s [4]=%s|r',
+                tostring(self.records[1]), tostring(self.records[2]), tostring(self.records[3]), tostring(self.records[4])))
+            aux.print('|cffff0000[Reset BUG] Stack trace:|r')
+            aux.print(debugstack(1, 5, 0))
+        end
         T.wipe(self.expanded)
         self:UpdateRowInfo()
         self:UpdateRows()
@@ -849,6 +866,27 @@ local methods = {
 
     SetDatabase = function(self, database)
         if database and database ~= self.records then
+            -- DEBUG: Check if database looks like a filter component
+            if database[1] == 'blizzard' then
+                aux.print('|cffff0000[SetDatabase BUG] database IS a filter component! {"blizzard", ...}|r')
+                aux.print(format('|cffff0000[SetDatabase BUG] Filter values: [1]=%s [2]=%s [3]=%s [4]=%s|r',
+                    tostring(database[1]), tostring(database[2]), tostring(database[3]), tostring(database[4])))
+                aux.print('|cffff0000[SetDatabase BUG] Stack trace:|r')
+                aux.print(debugstack(1, 5, 0))
+                return -- Don't set corrupted database
+            end
+            -- DEBUG: Validate incoming database entries
+            local has_bad = false
+            for k, v in database do
+                if type(v) ~= 'table' then
+                    aux.print(format('|cffff0000[SetDatabase BUG] database[%s] = %s (type: %s)|r', tostring(k), tostring(v), type(v)))
+                    has_bad = true
+                end
+            end
+            if has_bad then
+                aux.print('|cffff0000[SetDatabase BUG] Stack trace:|r')
+                aux.print(debugstack(1, 5, 0))
+            end
             self.records = database
         end
 

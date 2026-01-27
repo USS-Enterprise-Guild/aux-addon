@@ -657,6 +657,11 @@ local methods = {
             if type(v) ~= 'table' then
                 aux.print(format('|cffff0000[BUG] records[%s] = %s (type: %s)|r', tostring(k), tostring(v), type(v)))
                 tinsert(dominated_keys, k)
+            elseif not v.search_signature then
+                aux.print(format('|cffff0000[BUG] records[%s] missing search_signature! item_key=%s, link=%s|r', tostring(k), tostring(v.item_key), tostring(v.link)))
+                aux.print('|cffff0000[BUG] Stack trace:|r')
+                aux.print(debugstack(1, 5, 0))
+                tinsert(dominated_keys, k)
             end
         end
         -- Check if this is a history weighted_value table

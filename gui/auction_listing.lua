@@ -855,14 +855,7 @@ local methods = {
     end,
 
     Reset = function(self)
-        -- DEBUG: Check if records is already corrupted before Reset
-        if self.records and self.records[1] == 'blizzard' then
-            aux.print('|cffff0000[Reset BUG] self.records IS a filter component BEFORE Reset!|r')
-            aux.print(format('|cffff0000[Reset BUG] Filter values: [1]=%s [2]=%s [3]=%s [4]=%s|r',
-                tostring(self.records[1]), tostring(self.records[2]), tostring(self.records[3]), tostring(self.records[4])))
-            aux.print('|cffff0000[Reset BUG] Stack trace:|r')
-            aux.print(debugstack(1, 5, 0))
-        end
+        self.records = {}  -- Clear dangling reference to prevent use-after-free from table pool
         T.wipe(self.expanded)
         self:UpdateRowInfo()
         self:UpdateRows()

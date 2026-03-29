@@ -1,7 +1,7 @@
 ## Interface: 11200
 ## Author: shirsig
 ## OptionalDeps: ShaguTweaks
-## Title: aux
+## Title: aux |cff00ffff[USS Enterprise Edition]|r
 ## Notes: Auction House replacement
 ## SavedVariables: aux
 ## Version: 1.0.0-1701-1
